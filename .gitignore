@@ -48,3 +48,17 @@ checkpoints/
 *.pth
 *.h5
 *.onnx
+
+# Arquivos de mídia e compactados
+*.mp4
+*.avi
+*.zip
+*.tar.gz
+
+# Logs e arquivos temporários de editor
+*.log
+*~
+.DS_Store
+
+# Resultados e artefatos de testes gerados
+OLGA/results_test/
