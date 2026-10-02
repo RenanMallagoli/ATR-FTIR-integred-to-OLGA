@@ -33,18 +33,17 @@ def load_and_clean_real_data(train_csv_path, test_csv_path):
     wavenumbers = X_df.columns.astype(float).values
     
     # 4. Pipeline de Limpeza (FTIR-Prep)
+    # 4. Pipeline de Limpeza (FTIR-Prep)
     print("Aplicando Savitzky-Golay e Correção de Baseline na matriz de espectros...")
     pipeline = (PipelineBuilder()
-                .add_truncation('fingerprint')         # Mantém apenas a região de interesse biológico
-                .add_baseline('rubberband')            # Endireita a linha de base da onda
-                .add_smoothing('savgol', polyorder=2)  # Remove os micro-ruídos
-                .add_normalization('minmax')           # Escala de 0 a 1
+                .add_truncation('fingerprint')         
+                .add_baseline('rubberband')            
+                .add_smoothing('savgol', polyorder=2)  
+                .add_normalization('minmax')           
                 .build())
                 
     X_processed, wavenumbers_processed = pipeline.process(X, wavenumbers)
-    X_processed = X_processed[:, ::2] 
-    wavenumbers_processed = wavenumbers_processed[::2]
     
-    print(f"Sucesso! {len(X_processed)} espectros limpos (resolução reduzida para velocidade).")
+    print(f"Sucesso! {len(X_processed)} espectros limpos em resolução máxima.")
     
     return X_processed, y, wavenumbers_processed

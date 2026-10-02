@@ -153,7 +153,7 @@ if __name__ == '__main__':
     # Roteador de Modelos de Grafo
     if args.graph_model == "knn":
         A_knn = gb.build_knn(X_total, k=3)
-    elif args.graph_model == "sknn":
+    elif args.graph_model == "sknn":    
         A_knn = gb.build_sknn(X_total, k=3)
     elif args.graph_model == "mknn":
         A_knn = gb.build_mknn(X_total, k=3)
