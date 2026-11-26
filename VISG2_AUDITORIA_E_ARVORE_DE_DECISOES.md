@@ -105,9 +105,9 @@ Limita o número de conexões visíveis mantidas por nó no NVG a partir de duas
 
 #### Alternativas em Segundo Plano (Para Teste Posterior Sem Vazamento de Rótulos)
 1. **`meta_mode="train_only"` (Controle de acoplamento transdutivo no regime one-class):**
-   - Restringe os candidatos top-$k$ apenas aos nós pertencentes a `train_mask` (sem usar rótulos de `val`/`test`). Após simetrização `np.maximum(A, A.T)`, nós de `train` conectam-se entre si sem interferência de `val`/`test`, e nós de `val`/`test` ancoram-se aos seus $k$ controles de treino mais similares.
+   - Restringe a seleção top-$k$ originada por nós de treino ($i \in \text{train\_mask}$) apenas a candidatos também em `train_mask` (sem usar rótulos de `val`/`test`), blindando o núcleo de treino contra anomalias. Nós fora de `train_mask` (`val`/`test`) continuam selecionando seus top-$k$ de forma não-supervisionada no grafo completo — garantindo tanto ausência de *label leakage* quanto a presença de arestas internas no subgrafo `g_unsup` exigido pelo `recon_loss_unsup` do OLGA.
 2. **`meta_mode="train_supervised"` (Eq. 4 restrita estritamente ao conjunto de treino):**
-   - Para nós em `train_mask`, exige $y_i = y_j$ entre candidatos de `train_mask` (os rótulos fora de `train_mask` nunca são lidos). Nós fora de `train_mask` conectam-se aos seus top-$k$ em `train_mask` sem consulta de rótulo.
+   - Para nós em `train_mask`, exige $y_i = y_j$ entre candidatos de `train_mask` (os rótulos fora de `train_mask` nunca são lidos). Nós fora de `train_mask` continuam selecionando seus top-$k$ de forma não-supervisionada no grafo completo, preservando o subgrafo `g_unsup` e zero *label leakage*.
    - *Nota matemática:* Como o `train_mask` atual do OLGA contém apenas uma classe (`classe_controle`), $y_i = y_j$ já vale para todo par em `train_mask` (tornando `train_supervised` estruturalmente equivalente a `train_only` no one-class puro, mas já pronto caso um protocolo futuro tenha múltiplas classes rotuladas no treino).
 
 ---
@@ -121,7 +121,7 @@ docker-lab run
 docker-lab logs renan_visg2_E00
 ```
 
-> **Execução em bateria controlada (`E01` + `E01R`):** Para rodar todas as 8 configurações da Decisão 01 (`E01` com `closest_band_union` para `n ∈ {3, 4, 6, 8, 10}` e `E01R` com `right_n` para `n ∈ {2, 3, 5}`) em processos isolados do `main.py` (~2–3 min no total), ative `SCRIPT=OLGA/codes/olga/run_visg2_sweep.py` e `JOB_NAME={USERNAME}_visg2_E01` no `job.env` e acompanhe com `docker-lab logs renan_visg2_E01`.
+> **Execução em baterias controladas (`--battery {E01_E01R, E02_E04}`):** O orquestrador `OLGA/codes/olga/run_visg2_sweep.py` executa cada configuração em processo isolado do `main.py` (~2–3 min por bateria de 8 rodadas). Atualmente está ativo com `--battery E02_E04` como padrão (`JOB_NAME={USERNAME}_visg2_E02_E04` no `job.env`; acompanhar via `docker-lab logs renan_visg2_E02_E04`), reunindo `E02` (`k ∈ {2, 5, 7}`), `E03` (`band_window`, `w ∈ {5, 10, 25, 50}`) e `E04` (`train_supervised`). Para reexecutar `E01` + `E01R`, passe `--battery E01_E01R`.
 
 *(Dica: ao mudar de etapa no `job.env`, atualize também `JOB_NAME={USERNAME}_visg2_<etapa>` se quiser manter um arquivo de log separado em `/opt/docker_lab/logs/` para cada bateria.)*
 
@@ -156,5 +156,18 @@ Cada experimento gera seu próprio arquivo isolado em `OLGA/codes/results/<DATAS
 | ID Exp. | `nvg_mode` / `policy` | `n` / `w` | `k` | `meta_mode` | Arestas médias/NVG | Jaccard médio ± dp | Grau médio meta | Comp. conexas | Homofilia (%) | % `train`–não-treino | Macro-F1 (Val) | Tempo (s) |
 | :--- | :--- | :---: | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **E00** | `none` / `-` | `None` | `3` | `unsupervised` | `17413.8 ± 2144.3` | `0.4542 ± 0.1011` | `4.67` | `6` | `77.16%` | `28.4%` (`14.9%` val / `13.5%` test) | `0.4768` *(ep. 83; ES ep. 383)* | `20.3` *(VisG2: 14.7s; OLGA: 4.2s; RAM: 610.4 MB)* |
+| **E01_n3** | `neighbor_limit` / `closest_band_union` | `3` | `3` | `unsupervised` | `1732.9 ± 10.4` | `0.5938 ± 0.0273` | `4.63` | `10` | `81.38%` | `26.8%` (`14.2%` val / `12.6%` test) | `0.4785` *(ES ep. 423)* | `20.7` |
+| **E01_n4** | `neighbor_limit` / `closest_band_union` | `4` | `3` | `unsupervised` | `2319.3 ± 11.5` | `0.4810 ± 0.0361` | `4.63` | `9` | `81.56%` | `27.2%` (`14.5%` val / `12.7%` test) | `0.5146` *(ES ep. 300)* | `19.9` |
+| **E01_n6** | `neighbor_limit` / `closest_band_union` | `6` | `3` | `unsupervised` | `3633.3 ± 31.8` | `0.4448 ± 0.0476` | `4.62` | `8` | `81.58%` | `28.0%` (`14.9%` val / `13.1%` test) | `0.4978` *(ES ep. 379)* | `21.7` |
+| **E01_n8** | `neighbor_limit` / `closest_band_union` | **`8`** | `3` | `unsupervised` | `4766.1 ± 93.3` | `0.4367 ± 0.0529` | `4.61` | `10` | **`83.31%`** | **`26.6%`** (`13.9%` val / `12.7%` test) | **`0.5408`** *(ES ep. 409)* | `22.8` |
+| **E01_n10** | `neighbor_limit` / `closest_band_union` | `10` | `3` | `unsupervised` | `5809.1 ± 183.5` | `0.4202 ± 0.0564` | `4.67` | `7` | `82.06%` | `27.1%` (`13.1%` val / `14.0%` test) | `0.5158` *(ES ep. 419)* | `23.6` |
+| **E01R_n2** | `neighbor_limit` / `right_n` | `2` | `3` | `unsupervised` | `1678.8 ± 11.6` | `0.6175 ± 0.0271` | `4.67` | `9` | `81.86%` | `25.2%` (`14.0%` val / `11.2%` test) | `0.5087` *(ES ep. 388)* | `15.8` |
+| **E01R_n3** | `neighbor_limit` / `right_n` | `3` | `3` | `unsupervised` | `2394.0 ± 25.2` | `0.5209 ± 0.0377` | `4.69` | `13` | `80.72%` | `27.2%` (`14.5%` val / `12.7%` test) | `0.5116` *(ES ep. 402)* | `16.2` |
+| **E01R_n5** | `neighbor_limit` / `right_n` | `5` | `3` | `unsupervised` | `3717.7 ± 62.0` | `0.4568 ± 0.0488` | `4.63` | `10` | `79.98%` | `27.7%` (`14.5%` val / `13.1%` test) | `0.4913` *(ES ep. 409)* | `17.1` |
+
+### 5.1 Síntese Analítica da Decisão 01 (`E01` vs. `E01R` vs. `E00`)
+- **Ganho consistente sobre o baseline irrestrito (`E00`):** Todas as **8** configurações esparsas superaram o `E00` simultaneamente em **homofilia topológica do meta-grafo** (`79.98%–83.31%` vs. `77.16%`) e em **Macro-F1 no OLGA** (`0.4785–0.5408` vs. `0.4768`), comprovando que remover conexões globais de longo alcance nos NVGs reduz o ruído estrutural de picos dominantes (*hubs*).
+- **Melhor configuração de `E01` (`E01_n8` — `closest_band_union`, `n=8`):** Reduziu o tamanho médio do NVG em **72,6%** (`4766.1` vs. `17413.8` arestas), atingiu o **pico global de homofilia não-supervisionada (`83.31%`, +6,15 p.p.)**, o menor acoplamento `train`–não-treino dentro de `E01` (`26.6%`) e o **maior Macro-F1 (`0.5408`, +6,40 p.p. sobre `E00`)**, seguido de queda em `n=10` (`82.06%` / `0.5158`), caracterizando um ponto ótimo claro na vizinhança de `n=8`.
+- **Comparação de políticas (`closest_band_union` vs. `right_n`):** Em orçamentos muito baixos (1 atalho: `E01R_n2` vs. `E01_n3`), `right_n` foi competitivo (`0.5087`), porém perdeu homofilia conforme $n$ cresceu (`81.86%` → `80.72%` → `79.98%`). Já `closest_band_union` melhorou até `n=8` (`83.31%` / `0.5408`) por preservar a **simetria espectral bilateral** ($|b - a|$) nos flancos esquerdo e direito das bandas de absorção ATR-FTIR, sem o viés direcional de olhar apenas para maiores números de onda ($b > a$).
 
 > **Nota de auditoria pós-`E00` (fora do escopo do VisG2 — modelo OLGA mantido intocado):** observou-se queda do Macro-F1 após a época `150` (`0.4358` na época 100 → `0.4195` na 200 → `0.3606` na 300, com pico de `0.4768` na época 83 antes do `multi_task=150`), confirmando empiricamente a observação lateral da Seção 2.3 (inversão `label=0` em `train_mask` vs. `label==1` esperado em `oneclass.py`). Esse comportamento fica registrado para análise dedicada após concluirmos a etapa estrita do VisG2.

@@ -273,8 +273,11 @@ def _build_topk_metagraph(sim_matrix, k=3, meta_mode="unsupervised", y=None, tra
         if int(np.sum(train_mask_bool)) <= 1:
             raise ValueError("train_mask deve conter ao menos 2 amostras de treino.")
 
-        # Impede que nós fora de train_mask sejam candidatos na seleção dirigida top-k
-        scores[:, ~train_mask_bool] = -np.inf
+        # Nós de treino (i in train_mask) selecionam seus top-k apenas entre candidatos
+        # de train_mask (blindando o núcleo de treino contra anomalias), enquanto nós
+        # fora de train_mask (val/test) continuam selecionando top-k não-supervisionado
+        # no grafo completo, preservando as arestas do subgrafo g_unsup exigido pelo OLGA.
+        scores[np.ix_(train_mask_bool, ~train_mask_bool)] = -np.inf
 
         if meta_mode == "train_supervised":
             if y is None:

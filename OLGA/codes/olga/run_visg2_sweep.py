@@ -16,6 +16,20 @@ E01_E01R_EXPERIMENTS = [
     ("E01R_n5", "visg2_E01R_right_n5", "neighbor_limit", 5, "right_n", 3, "unsupervised"),
 ]
 
+SWEEP_BATTERIES = {
+    "E01_E01R": E01_E01R_EXPERIMENTS,
+    "E02_E04": [
+        ("E02_k2", "visg2_E02_union_n8_k2", "neighbor_limit", 8, "closest_band_union", 2, "unsupervised"),
+        ("E02_k5", "visg2_E02_union_n8_k5", "neighbor_limit", 8, "closest_band_union", 5, "unsupervised"),
+        ("E02_k7", "visg2_E02_union_n8_k7", "neighbor_limit", 8, "closest_band_union", 7, "unsupervised"),
+        ("E03_w5", "visg2_E03_win5", "band_window", 5, "closest_band_union", 3, "unsupervised"),
+        ("E03_w10", "visg2_E03_win10", "band_window", 10, "closest_band_union", 3, "unsupervised"),
+        ("E03_w25", "visg2_E03_win25", "band_window", 25, "closest_band_union", 3, "unsupervised"),
+        ("E03_w50", "visg2_E03_win50", "band_window", 50, "closest_band_union", 3, "unsupervised"),
+        ("E04_tsup", "visg2_E04_trainsup_n8_k3", "neighbor_limit", 8, "closest_band_union", 3, "train_supervised"),
+    ],
+}
+
 
 def _extract(pattern, text, group=1, default="N/A"):
     match = re.search(pattern, text)
@@ -84,9 +98,10 @@ def format_markdown_summary(rows):
     lines = [header]
     for exp, m in rows:
         exp_id, _, nvg_mode, n, policy, k, meta_mode = exp
+        mode_cell = "`band_window` / `-`" if nvg_mode == "band_window" else f"`{nvg_mode}` / `{policy}`"
         f1_cell = f"`{m['best_f1']}` *(ES ep. {m['es_epoch']})*" if m["es_epoch"] != "N/A" else f"`{m['best_f1']}`"
         lines.append(
-            f"| **{exp_id}** | `{nvg_mode}` / `{policy}` | `{n}` | `{k}` | `{meta_mode}` | "
+            f"| **{exp_id}** | {mode_cell} | `{n}` | `{k}` | `{meta_mode}` | "
             f"`{m['nvg_edges']}` | `{m['jaccard']}` | `{m['meta_deg']}` | `{m['meta_comp']}` | "
             f"`{m['homophily']}` | {m['coupling']} | {f1_cell} | `{m['elapsed_s']}` |"
         )
@@ -99,26 +114,40 @@ def main():
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(line_buffering=True)
 
-    parser = argparse.ArgumentParser(description="Orquestrador isolado da bateria VisG2 E01 + E01R")
+    parser = argparse.ArgumentParser(description="Orquestrador isolado das baterias VisG2")
+    parser.add_argument(
+        "--battery",
+        type=str,
+        default="E02_E04",
+        choices=list(SWEEP_BATTERIES.keys()),
+        help="Bateria de experimentos a executar (padrão: E02_E04)",
+    )
     parser.add_argument("--dataset", type=str, default="ftir_diabetes", help="Nome do dataset para o CSV de saída")
     parser.add_argument("--dry-run", action="store_true", help="Apenas imprime os comandos sem executar")
     args = parser.parse_args()
 
+    experiments = SWEEP_BATTERIES[args.battery]
     main_py = Path(__file__).resolve().parent / "main.py"
-    total = len(E01_E01R_EXPERIMENTS)
+    total = len(experiments)
 
     if args.dry_run:
-        for idx, exp in enumerate(E01_E01R_EXPERIMENTS, start=1):
+        print(f"=== Dry-run bateria {args.battery} ({total} execuções) ===")
+        for idx, exp in enumerate(experiments, start=1):
             cmd = build_command(main_py, args.dataset, exp)
             print(f"[{idx}/{total}] {' '.join(cmd)}")
         return
 
+    print(f"=== Iniciando bateria {args.battery} ({total} execuções isoladas) ===", flush=True)
     results = []
     t_sweep = time.time()
-    for idx, exp in enumerate(E01_E01R_EXPERIMENTS, start=1):
+    for idx, exp in enumerate(experiments, start=1):
         exp_id, tag, nvg_mode, n, policy, k, meta_mode = exp
         cmd = build_command(main_py, args.dataset, exp)
-        print(f"\n=== [{idx}/{total}] {exp_id} ({policy}, n={n}, k={k}, tag={tag}) ===", flush=True)
+        print(
+            f"\n=== [{idx}/{total}] [{args.battery}] {exp_id} "
+            f"({nvg_mode}/{policy}, n={n}, k={k}, meta={meta_mode}, tag={tag}) ===",
+            flush=True,
+        )
 
         t0 = time.time()
         proc = subprocess.Popen(
@@ -144,7 +173,7 @@ def main():
         metrics = parse_run_metrics("".join(captured), elapsed_s)
         results.append((exp, metrics))
 
-    print(f"\n=== Bateria E01 + E01R concluída em {time.time() - t_sweep:.1f}s ===\n", flush=True)
+    print(f"\n=== Bateria {args.battery} concluída em {time.time() - t_sweep:.1f}s ===\n", flush=True)
     print(format_markdown_summary(results), flush=True)
 
 
