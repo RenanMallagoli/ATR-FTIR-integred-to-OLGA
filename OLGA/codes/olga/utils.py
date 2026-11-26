@@ -39,8 +39,21 @@ def save_values(metrics, values):
 
 
 def write_results(metrics, file_name, line_parameters, path):
-    if not Path(path + file_name).is_file():
-        file_ = open(path + file_name, 'w')
+    # 1. Âncora o caminho base onde o próprio utils.py está guardado
+    diretorio_atual = Path(__file__).resolve().parent
+    
+    # 2. Constrói o caminho para a pasta 'results' (OLGA/codes/results)
+    pasta_resultados = diretorio_atual / '..' / 'results'
+    
+    # 3. Cria a pasta automaticamente se ela não existir
+    pasta_resultados.mkdir(parents=True, exist_ok=True)
+    
+    # 4. Junta a pasta com o nome do ficheiro de forma segura
+    caminho_final = pasta_resultados / file_name
+
+    # Substituímos o (path + file_name) por caminho_final
+    if not caminho_final.is_file():
+        file_ = open(caminho_final, 'w')
         string = 'Parameters'
         for key in metrics.keys():
             if key == 'accuracy' or key == 'time':
@@ -53,7 +66,7 @@ def write_results(metrics, file_name, line_parameters, path):
         file_.write(string)
         file_.close()
 
-    file_ = open(path + file_name, 'a')
+    file_ = open(caminho_final, 'a')
     string = line_parameters
 
     for key in metrics.keys():

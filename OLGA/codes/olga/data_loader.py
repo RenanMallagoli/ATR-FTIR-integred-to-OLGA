@@ -33,7 +33,6 @@ def load_and_clean_real_data(train_csv_path, test_csv_path):
     wavenumbers = X_df.columns.astype(float).values
     
     # 4. Pipeline de Limpeza (FTIR-Prep)
-    # 4. Pipeline de Limpeza (FTIR-Prep)
     print("Aplicando Savitzky-Golay e Correção de Baseline na matriz de espectros...")
     pipeline = (PipelineBuilder()
                 .add_truncation('fingerprint')         
