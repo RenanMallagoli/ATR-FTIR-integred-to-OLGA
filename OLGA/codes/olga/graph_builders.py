@@ -188,22 +188,61 @@ def _extract_nvg_edges(
     )
 
 
+def _jaccard_from_edge_iterable(edge_iter):
+    """
+    Constrói a matriz esparsa CSR de incidência (amostras x arestas únicas) em streaming
+    e calcula a matriz simétrica exata de Jaccard (Eqs. 2–3) via multiplicação esparsa B @ B.T.
+    Retorna (sim_matrix, nvg_sizes).
+    """
+    from scipy.sparse import csr_matrix
+
+    edge_to_col = {}
+    indptr = [0]
+    indices = []
+    sizes = []
+
+    for es in edge_iter:
+        if not isinstance(es, (set, frozenset)):
+            es = set(es)
+        sizes.append(len(es))
+        for e in es:
+            col = edge_to_col.get(e)
+            if col is None:
+                col = len(edge_to_col)
+                edge_to_col[e] = col
+            indices.append(col)
+        indptr.append(len(indices))
+
+    n_samples = len(sizes)
+    nvg_sizes = np.asarray(sizes, dtype=np.int64)
+    if n_samples == 0 or len(edge_to_col) == 0:
+        return np.zeros((n_samples, n_samples), dtype=np.float64), nvg_sizes
+
+    data = np.ones(len(indices), dtype=np.int32)
+    B = csr_matrix(
+        (data, np.asarray(indices, dtype=np.int32), np.asarray(indptr, dtype=np.int64)),
+        shape=(n_samples, len(edge_to_col)),
+        dtype=np.int32,
+    )
+    del edge_to_col, indices, indptr, data
+
+    inter = (B @ B.T).toarray().astype(np.int64)
+    del B
+
+    uniao = nvg_sizes[:, None] + nvg_sizes[None, :] - inter
+    sim_matrix = np.divide(
+        inter,
+        uniao,
+        out=np.zeros((n_samples, n_samples), dtype=np.float64),
+        where=uniao != 0,
+    )
+    np.fill_diagonal(sim_matrix, 0.0)
+    return sim_matrix, nvg_sizes
+
+
 def _compute_jaccard_matrix(edge_sets):
-    """Calcula a matriz simétrica de similaridade de Jaccard sobre conjuntos de arestas (Eqs. 2–3)."""
-    n_samples = len(edge_sets)
-    sizes = [len(es) for es in edge_sets]
-    sim_matrix = np.zeros((n_samples, n_samples), dtype=float)
-
-    for i in range(n_samples):
-        ei = edge_sets[i]
-        si = sizes[i]
-        for j in range(i + 1, n_samples):
-            intersecao = len(ei.intersection(edge_sets[j]))
-            uniao = si + sizes[j] - intersecao
-            jaccard = intersecao / uniao if uniao != 0 else 0.0
-            sim_matrix[i, j] = jaccard
-            sim_matrix[j, i] = jaccard
-
+    """Calcula a matriz simétrica exata de similaridade de Jaccard sobre conjuntos de arestas (Eqs. 2–3)."""
+    sim_matrix, _ = _jaccard_from_edge_iterable(edge_sets)
     return sim_matrix
 
 
@@ -290,13 +329,17 @@ def compute_visg2_diagnostics(
     train_mask=None,
     val_mask=None,
     test_mask=None,
+    nvg_sizes=None,
 ):
     """
     Calcula métricas estruturais de auditoria do VisG2 em modo estritamente somente-leitura
     (não altera o grafo nem injeta informação de rótulos no modelo).
     """
-    n_samples = len(edge_sets)
-    nvg_sizes = np.array([len(es) for es in edge_sets], dtype=float)
+    if nvg_sizes is None:
+        nvg_sizes = np.array([len(es) for es in edge_sets], dtype=float)
+    else:
+        nvg_sizes = np.asarray(nvg_sizes, dtype=float)
+    n_samples = len(nvg_sizes)
     tri_u = sim_matrix[np.triu_indices(n_samples, k=1)]
     degrees = np.sum(A > 0, axis=1)
     edge_u, edge_v = np.where(np.triu(A, k=1) > 0)
@@ -406,8 +449,15 @@ def build_visg2(
     """
     n_samples = len(X_total)
 
-    # 1. Construção do NVG por espectro e extração determinística de arestas
-    edge_sets = [
+    if vg_cls is None:
+        try:
+            from ts2vg import NaturalVG
+            vg_cls = NaturalVG
+        except ImportError:
+            raise ImportError("A biblioteca ts2vg não está instalada. Rode: pip install ts2vg")
+
+    # 1 e 2. Extração do NVG por espectro em streaming + Jaccard Topológico exato (Eqs. 2–3) via CSR
+    edge_gen = (
         _extract_nvg_edges(
             X_total[i],
             nvg_mode=nvg_mode,
@@ -416,10 +466,8 @@ def build_visg2(
             vg_cls=vg_cls,
         )
         for i in range(n_samples)
-    ]
-
-    # 2. Matriz de Similaridade de Jaccard Topológica (Eqs. 2–3)
-    sim_matrix = _compute_jaccard_matrix(edge_sets)
+    )
+    sim_matrix, nvg_sizes = _jaccard_from_edge_iterable(edge_gen)
 
     # 3. Formação do Meta-Grafo (Decisão 02)
     # Blindagem explícita: modos não-supervisionados jamais recebem o vetor y
@@ -436,13 +484,14 @@ def build_visg2(
 
     if return_diagnostics:
         diag = compute_visg2_diagnostics(
-            edge_sets=edge_sets,
+            edge_sets=None,
             sim_matrix=sim_matrix,
             A=A,
             y=y,
             train_mask=train_mask,
             val_mask=val_mask,
             test_mask=test_mask,
+            nvg_sizes=nvg_sizes,
         )
         return A, diag
 

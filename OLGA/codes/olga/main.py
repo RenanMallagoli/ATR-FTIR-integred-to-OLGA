@@ -11,6 +11,7 @@ import pandas as pd
 import random
 import os
 import sys
+import traceback
 from pathlib import Path
 import time
 from utils import save_values, write_results, init_metrics
@@ -145,190 +146,221 @@ def _load_job_env_defaults():
     }
 
 
+def _log_stage(msg, t0):
+    elapsed = time.time() - t0
+    try:
+        import psutil
+        rss_mb = psutil.Process().memory_info().rss / (1024 ** 2)
+        print(f"[+{elapsed:6.1f}s | RAM {rss_mb:7.1f} MB] {msg}", flush=True)
+    except Exception:
+        print(f"[+{elapsed:6.1f}s] {msg}", flush=True)
+
+
 if __name__ == '__main__':
-    env_defaults = _load_job_env_defaults()
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(line_buffering=True)
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(line_buffering=True)
 
-    parser = argparse.ArgumentParser(description='OLGA')
-    
-    parser.add_argument("--k", type=str, default=env_defaults["k_tag"], help="Tag do experimento usada no nome do CSV de saída")
-    
-    parser.add_argument("--h1", type=int, default=48, help="neurons from first hidden layer")
-    
-    parser.add_argument("--h2", type=int, default=2, help="neurons from second hidden layer")
-    
-    parser.add_argument("--radius", type=float, default=0.5, help="hypershpere radius")
-    
-    parser.add_argument("--lr", type=float, default=0.0001, help="learning rate")
-    
-    parser.add_argument("--patience", type=int, default=300, help="patience for early stopping")
-    
-    parser.add_argument("--n-epochs", type=int, default=5000, help="training epochs")
-    
-    parser.add_argument("--dataset", type=str, default=env_defaults["dataset"], help="dataset")
+    t0 = time.time()
+    try:
+        env_defaults = _load_job_env_defaults()
 
-    parser.add_argument("--graph_model", type=str, default=env_defaults["graph_model"], 
-                        choices=["knn", "sknn", "mknn", "smknn", "cosine", "pearson", "dtw", "visg2"], 
-                        help="Modelo de pré-processamento do grafo")
-
-    parser.add_argument("--graph_k", type=int, default=env_defaults["graph_k"],
-                        help="k efetivo para formação do meta-grafo VisG2 (padrão baseline E00: 3)")
-
-    parser.add_argument("--visg2_nvg_mode", type=str, default=env_defaults["visg2_nvg_mode"],
-                        choices=["none", "neighbor_limit", "band_window"],
-                        help="Decisão 01: restrição de esparsidade no NVG (padrão baseline E00: none)")
-
-    parser.add_argument("--visg2_n", type=int, default=env_defaults["visg2_n"],
-                        help="Decisão 01: parâmetro n (limite de vizinhos) ou w (janela de bandas) no NVG")
-
-    parser.add_argument("--visg2_neighbor_policy", type=str, default=env_defaults["visg2_neighbor_policy"],
-                        choices=["closest_band_union", "right_n"],
-                        help="Sub-decisão 01: política de seleção dos n vizinhos visíveis (padrão: closest_band_union)")
-
-    parser.add_argument("--visg2_meta_mode", type=str, default=env_defaults["visg2_meta_mode"],
-                        choices=["unsupervised", "train_only", "train_supervised"],
-                        help="Decisão 02: critério de conexão no meta-grafo VisG2 (padrão baseline E00: unsupervised)")
-    
-    args = parser.parse_args()
-
-    # Compõe o nome único do CSV para o write_results(utils.py), que grava em OLGA/codes/results/<file_name>
-    file_name = f"{args.dataset}_{args.k}_OLGA.csv" 
-
-    l_graphs = []
-
-    np.random.seed(42)
-    wavenumbers = np.linspace(1800, 900, 500)
-    base_peaks = [(0.8, 1650, 20), (0.5, 1550, 25), (0.3, 1050, 15)]
-
-    X_normal, X_anomaly = [], []
-    for _ in range(50):
-        y = np.zeros_like(wavenumbers)
-        for A, mu, sigma in base_peaks:
-            y += (A + np.random.normal(0, 0.05)) * np.exp(-((wavenumbers - mu)**2) / (2 * sigma**2))
-        X_normal.append(y + np.random.normal(0, 0.02, size=500))
+        parser = argparse.ArgumentParser(description='OLGA')
         
-    for _ in range(10):
-        y = np.zeros_like(wavenumbers)
-        for A, mu, sigma in base_peaks:
-            y += (A * np.random.uniform(0.5, 1.5)) * np.exp(-((wavenumbers - (mu + np.random.normal(0, 5)))**2) / (2 * sigma**2))
-        X_anomaly.append(y + np.random.normal(0, 0.02, size=500))
+        parser.add_argument("--k", type=str, default=env_defaults["k_tag"], help="Tag do experimento usada no nome do CSV de saída")
         
-    script_dir = Path(__file__).resolve().parent
-    train_path = Path("dataset/train/train.csv")
-    if not train_path.is_file():
-        train_path = script_dir / "dataset" / "train" / "train.csv"
-    test_path = Path("dataset/test/test.csv")
-    if not test_path.is_file():
-        test_path = script_dir / "dataset" / "test" / "test.csv"
-    
-    print("Carregando e processando dados reais...")
-    X_total, y_total, wavenumbers = dl.load_and_clean_real_data(train_path, test_path)
+        parser.add_argument("--h1", type=int, default=48, help="neurons from first hidden layer")
+        
+        parser.add_argument("--h2", type=int, default=2, help="neurons from second hidden layer")
+        
+        parser.add_argument("--radius", type=float, default=0.5, help="hypershpere radius")
+        
+        parser.add_argument("--lr", type=float, default=0.0001, help="learning rate")
+        
+        parser.add_argument("--patience", type=int, default=300, help="patience for early stopping")
+        
+        parser.add_argument("--n-epochs", type=int, default=5000, help="training epochs")
+        
+        parser.add_argument("--dataset", type=str, default=env_defaults["dataset"], help="dataset")
 
-    num_nodes = len(y_total)
+        parser.add_argument("--graph_model", type=str, default=env_defaults["graph_model"], 
+                            choices=["knn", "sknn", "mknn", "smknn", "cosine", "pearson", "dtw", "visg2"], 
+                            help="Modelo de pré-processamento do grafo")
 
-    train_mask = np.zeros(num_nodes, dtype=bool)
-    val_mask = np.zeros(num_nodes, dtype=bool)
-    test_mask = np.zeros(num_nodes, dtype=bool)
+        parser.add_argument("--graph_k", type=int, default=env_defaults["graph_k"],
+                            help="k efetivo para formação do meta-grafo VisG2 (padrão baseline E00: 3)")
 
-    # 1. Identificando as classes automaticamente 
-    # (Pega os dois valores únicos que existem no y_total, ex: 0 e 1)
-    classes = np.unique(y_total)
-    classe_controle = classes[0]  # Assumindo que o primeiro valor (ex: 0) é o Controle
-    classe_anomalia = classes[1]  # O segundo valor (ex: 1) é o Diabetes
+        parser.add_argument("--visg2_nvg_mode", type=str, default=env_defaults["visg2_nvg_mode"],
+                            choices=["none", "neighbor_limit", "band_window"],
+                            help="Decisão 01: restrição de esparsidade no NVG (padrão baseline E00: none)")
 
-    # 2. Separando os índices de cada grupo
-    control_idx = np.where(y_total == classe_controle)[0]
-    anomaly_idx = np.where(y_total == classe_anomalia)[0]
+        parser.add_argument("--visg2_n", type=int, default=env_defaults["visg2_n"],
+                            help="Decisão 01: parâmetro n (limite de vizinhos) ou w (janela de bandas) no NVG")
 
-    # Embaralha os índices para garantir que não haja viés na ordem do CSV
-    # (Mantém exatamente a mesma semente aleatória np.random.seed(42) do baseline E00)
-    np.random.shuffle(control_idx)
-    np.random.shuffle(anomaly_idx)
+        parser.add_argument("--visg2_neighbor_policy", type=str, default=env_defaults["visg2_neighbor_policy"],
+                            choices=["closest_band_union", "right_n"],
+                            help="Sub-decisão 01: política de seleção dos n vizinhos visíveis (padrão: closest_band_union)")
 
-    # 3. Definindo as proporções (70% treino, 15% validação, 15% teste para os controles)
-    n_train = int(len(control_idx) * 0.70)
-    n_val = int(len(control_idx) * 0.15)
-    
-    # TREINO: Recebe 70% dos Controles e ZERO Anomalias
-    train_mask[control_idx[:n_train]] = True
-    
-    # VALIDAÇÃO: Recebe 15% dos Controles e METADE das Anomalias
-    val_mask[control_idx[n_train:n_train+n_val]] = True
-    val_mask[anomaly_idx[:len(anomaly_idx)//2]] = True
-    
-    # TESTE: Recebe os 15% restantes dos Controles e a outra METADE das Anomalias
-    test_mask[control_idx[n_train+n_val:]] = True
-    test_mask[anomaly_idx[len(anomaly_idx)//2:]] = True
+        parser.add_argument("--visg2_meta_mode", type=str, default=env_defaults["visg2_meta_mode"],
+                            choices=["unsupervised", "train_only", "train_supervised"],
+                            help="Decisão 02: critério de conexão no meta-grafo VisG2 (padrão baseline E00: unsupervised)")
+        
+        args = parser.parse_args()
 
-    # Roteador de Modelos de Grafo
-    if args.graph_model == "knn":
-        A_knn = gb.build_knn(X_total, k=3)
-    elif args.graph_model == "sknn":    
-        A_knn = gb.build_sknn(X_total, k=3)
-    elif args.graph_model == "mknn":
-        A_knn = gb.build_mknn(X_total, k=3)
-    elif args.graph_model == "smknn":
-        A_knn = gb.build_smknn(X_total, k=3)
-    elif args.graph_model == "cosine":
-        A_knn = gb.build_cosine_knn(X_total, k=3)
-    elif args.graph_model == "pearson":
-        A_knn = gb.build_pearson_network(X_total, threshold=0.95)
-    elif args.graph_model == "dtw":
-        A_knn = gb.build_dtw_knn(X_total, k=3)
-    elif args.graph_model == "visg2": 
-        A_knn, visg2_diag = gb.build_visg2(
-            X_total,
-            k=args.graph_k,
-            nvg_mode=args.visg2_nvg_mode,
-            nvg_param=args.visg2_n,
-            neighbor_policy=args.visg2_neighbor_policy,
-            meta_mode=args.visg2_meta_mode,
-            y=y_total,
-            train_mask=train_mask,
-            val_mask=val_mask,
-            test_mask=test_mask,
-            return_diagnostics=True,
+        # Compõe o nome único do CSV para o write_results(utils.py), que grava em OLGA/codes/results/<file_name>
+        file_name = f"{args.dataset}_{args.k}_OLGA.csv"
+        _log_stage(
+            f"Início | dataset={args.dataset} | graph_model={args.graph_model} | saida={file_name}",
+            t0,
         )
-        print(
-            f"[VisG2 Config] k={args.graph_k} | nvg_mode={args.visg2_nvg_mode} | "
-            f"n={args.visg2_n} | policy={args.visg2_neighbor_policy} | meta_mode={args.visg2_meta_mode}"
-        )
-        print(gb.format_visg2_diagnostics(visg2_diag))
 
-    # Convertendo para PyTorch
-    x_tensor = torch.FloatTensor(X_total)
-    y_tensor = torch.LongTensor(y_total.copy())
-    rows, cols = np.where(A_knn == 1)
-    edge_index = torch.LongTensor(np.vstack((rows, cols)))
+        l_graphs = []
 
-    # =====================================================================
-    # 2. PONTE: ADAPTANDO PARA O FORMATO NETWORKX ESPERADO PELO OLGA
-    # =====================================================================
-    g = nx.from_numpy_array(A_knn)
+        np.random.seed(42)
+        wavenumbers = np.linspace(1800, 900, 500)
+        base_peaks = [(0.8, 1650, 20), (0.5, 1550, 25), (0.3, 1050, 15)]
 
-    # Injetamos as features, rótulos e as chaves exatas que o oneclass.py espera
-    for i in range(len(X_total)):
-        g.nodes[i]['features'] = X_total[i].tolist()
+        X_normal, X_anomaly = [], []
+        for _ in range(50):
+            y = np.zeros_like(wavenumbers)
+            for A, mu, sigma in base_peaks:
+                y += (A + np.random.normal(0, 0.05)) * np.exp(-((wavenumbers - mu)**2) / (2 * sigma**2))
+            X_normal.append(y + np.random.normal(0, 0.02, size=500))
+            
+        for _ in range(10):
+            y = np.zeros_like(wavenumbers)
+            for A, mu, sigma in base_peaks:
+                y += (A * np.random.uniform(0.5, 1.5)) * np.exp(-((wavenumbers - (mu + np.random.normal(0, 5)))**2) / (2 * sigma**2))
+            X_anomaly.append(y + np.random.normal(0, 0.02, size=500))
+            
+        script_dir = Path(__file__).resolve().parent
+        train_path = Path("dataset/train/train.csv")
+        if not train_path.is_file():
+            train_path = script_dir / "dataset" / "train" / "train.csv"
+        test_path = Path("dataset/test/test.csv")
+        if not test_path.is_file():
+            test_path = script_dir / "dataset" / "test" / "test.csv"
         
-        # O modelo OLGA pode esperar que a classe de interesse seja 1 ou 0.
-        # Caso o F1-score fique zerado ou ocorra erro de divisão, inverta os valores:
-        # 1 para Controle, 0 para Anomalia. Aqui mantivemos 0 e 1, respectivamente.
-        g.nodes[i]['y'] = int(y_total[i])
-        g.nodes[i]['label'] = int(y_total[i]) 
+        _log_stage(f"Carregando e processando dados reais ({train_path}, {test_path})...", t0)
+        X_total, y_total, wavenumbers = dl.load_and_clean_real_data(train_path, test_path)
+        _log_stage(f"Dados processados: X_total={X_total.shape}, dtype={X_total.dtype}", t0)
+
+        num_nodes = len(y_total)
+
+        train_mask = np.zeros(num_nodes, dtype=bool)
+        val_mask = np.zeros(num_nodes, dtype=bool)
+        test_mask = np.zeros(num_nodes, dtype=bool)
+
+        # 1. Identificando as classes automaticamente 
+        # (Pega os dois valores únicos que existem no y_total, ex: 0 e 1)
+        classes = np.unique(y_total)
+        classe_controle = classes[0]  # Assumindo que o primeiro valor (ex: 0) é o Controle
+        classe_anomalia = classes[1]  # O segundo valor (ex: 1) é o Diabetes
+
+        # 2. Separando os índices de cada grupo
+        control_idx = np.where(y_total == classe_controle)[0]
+        anomaly_idx = np.where(y_total == classe_anomalia)[0]
+
+        # Embaralha os índices para garantir que não haja viés na ordem do CSV
+        # (Mantém exatamente a mesma semente aleatória np.random.seed(42) do baseline E00)
+        np.random.shuffle(control_idx)
+        np.random.shuffle(anomaly_idx)
+
+        # 3. Definindo as proporções (70% treino, 15% validação, 15% teste para os controles)
+        n_train = int(len(control_idx) * 0.70)
+        n_val = int(len(control_idx) * 0.15)
         
-        g.nodes[i]['train'] = 1 if train_mask[i] else 0
-        g.nodes[i]['val'] = 1 if val_mask[i] else 0
-        g.nodes[i]['test'] = 1 if test_mask[i] else 0
+        # TREINO: Recebe 70% dos Controles e ZERO Anomalias
+        train_mask[control_idx[:n_train]] = True
+        
+        # VALIDAÇÃO: Recebe 15% dos Controles e METADE das Anomalias
+        val_mask[control_idx[n_train:n_train+n_val]] = True
+        val_mask[anomaly_idx[:len(anomaly_idx)//2]] = True
+        
+        # TESTE: Recebe os 15% restantes dos Controles e a outra METADE das Anomalias
+        test_mask[control_idx[n_train+n_val:]] = True
+        test_mask[anomaly_idx[len(anomaly_idx)//2:]] = True
 
-    l_graphs = [g]
+        # Roteador de Modelos de Grafo
+        _log_stage(f"Construindo grafo '{args.graph_model}'...", t0)
+        if args.graph_model == "knn":
+            A_knn = gb.build_knn(X_total, k=3)
+        elif args.graph_model == "sknn":    
+            A_knn = gb.build_sknn(X_total, k=3)
+        elif args.graph_model == "mknn":
+            A_knn = gb.build_mknn(X_total, k=3)
+        elif args.graph_model == "smknn":
+            A_knn = gb.build_smknn(X_total, k=3)
+        elif args.graph_model == "cosine":
+            A_knn = gb.build_cosine_knn(X_total, k=3)
+        elif args.graph_model == "pearson":
+            A_knn = gb.build_pearson_network(X_total, threshold=0.95)
+        elif args.graph_model == "dtw":
+            A_knn = gb.build_dtw_knn(X_total, k=3)
+        elif args.graph_model == "visg2": 
+            A_knn, visg2_diag = gb.build_visg2(
+                X_total,
+                k=args.graph_k,
+                nvg_mode=args.visg2_nvg_mode,
+                nvg_param=args.visg2_n,
+                neighbor_policy=args.visg2_neighbor_policy,
+                meta_mode=args.visg2_meta_mode,
+                y=y_total,
+                train_mask=train_mask,
+                val_mask=val_mask,
+                test_mask=test_mask,
+                return_diagnostics=True,
+            )
+            print(
+                f"[VisG2 Config] k={args.graph_k} | nvg_mode={args.visg2_nvg_mode} | "
+                f"n={args.visg2_n} | policy={args.visg2_neighbor_policy} | meta_mode={args.visg2_meta_mode}",
+                flush=True,
+            )
+            print(gb.format_visg2_diagnostics(visg2_diag), flush=True)
+        _log_stage(f"Grafo '{args.graph_model}' construído (shape={A_knn.shape}).", t0)
 
-    # seeds
-    seed = 81
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    random.seed(seed)   
-    torch.cuda.manual_seed_all(seed)
-    
-    pr = '../results/' + args.dataset + '_' + args.k + '_'
-    
-    train_parameters(l_graphs, args.patience, args.h1, args.h2, args.radius, args.lr, file_name, pr, args.n_epochs)
-    print(f"[Resultados] Métricas gravadas em: OLGA/codes/results/{file_name}")
+        # Convertendo para PyTorch
+        x_tensor = torch.FloatTensor(X_total)
+        y_tensor = torch.LongTensor(y_total.copy())
+        rows, cols = np.where(A_knn == 1)
+        edge_index = torch.LongTensor(np.vstack((rows, cols)))
+
+        # =====================================================================
+        # 2. PONTE: ADAPTANDO PARA O FORMATO NETWORKX ESPERADO PELO OLGA
+        # =====================================================================
+        g = nx.from_numpy_array(A_knn)
+
+        # Injetamos as features, rótulos e as chaves exatas que o oneclass.py espera
+        for i in range(len(X_total)):
+            g.nodes[i]['features'] = X_total[i].tolist()
+            
+            # O modelo OLGA pode esperar que a classe de interesse seja 1 ou 0.
+            # Caso o F1-score fique zerado ou ocorra erro de divisão, inverta os valores:
+            # 1 para Controle, 0 para Anomalia. Aqui mantivemos 0 e 1, respectivamente.
+            g.nodes[i]['y'] = int(y_total[i])
+            g.nodes[i]['label'] = int(y_total[i]) 
+            
+            g.nodes[i]['train'] = 1 if train_mask[i] else 0
+            g.nodes[i]['val'] = 1 if val_mask[i] else 0
+            g.nodes[i]['test'] = 1 if test_mask[i] else 0
+
+        l_graphs = [g]
+
+        # seeds
+        seed = 81
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+        random.seed(seed)   
+        torch.cuda.manual_seed_all(seed)
+        
+        pr = '../results/' + args.dataset + '_' + args.k + '_'
+        
+        _log_stage("Iniciando treinamento OLGA (train_parameters)...", t0)
+        train_parameters(l_graphs, args.patience, args.h1, args.h2, args.radius, args.lr, file_name, pr, args.n_epochs)
+        _log_stage(f"Execução concluída. Métricas gravadas em: OLGA/codes/results/{file_name}", t0)
+    except Exception:
+        print("\n[ERRO FATAL] Exceção não tratada durante a execução:", flush=True)
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.flush()
+        raise

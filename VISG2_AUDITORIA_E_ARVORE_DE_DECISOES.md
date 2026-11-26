@@ -31,12 +31,13 @@
 - **Dependência:** `ts2vg==1.2.4` (`requirements.txt` na raiz do repositório).
 - **NVG por espectro:** Chamava `NaturalVG().build(X_total[i])` sem corte de vizinhança/alcance ($n$). Em espectros de $\sim 933$ pontos, picos dominantes atuam como *hubs* globais conectando centenas de bandas distantes e dominando o coeficiente de Jaccard.
   - *Nota sobre `ts2vg==1.2.4`:* `NaturalVG` não possui parâmetro nativo de limite de $n$ conexões por nó (`penetrable_limit` faz o inverso, aumentando a densidade; `weighted="abs_h_distance"` com `max_weight` usa desigualdade estrita `< max_weight` e muda `vg.edges` para triplas `(u, v, w)`). Por isso, a poda determinística pós-`NaturalVG` sobre pares canônicos `(min(u, v), max(u, v))` é a solução mais limpa, exata e auditável.
-- **Matriz de Jaccard:** Fiel às Eqs. 2–3 ($|E_i \cap E_j| / |E_i \cup E_j|$) sobre o triângulo superior espelhado. Otimizada algebricamente via $|E_i \cup E_j| = |E_i| + |E_j| - |E_i \cap E_j|$ (resultado idêntico sem alocar $134\,940$ conjuntos temporários).
+- **Matriz de Jaccard:** Fiel às Eqs. 2–3 ($|E_i \cap E_j| / |E_i \cup E_j|$). Otimizada via matriz de incidência esparsa CSR em *streaming* (`scipy.sparse`, interseções via $B B^\top$ e união via $|E_i| + |E_j| - |E_i \cap E_j|$), mantendo resultado **bit-a-bit idêntico** ao laço de conjuntos com redução drástica de tempo e consumo de RAM nos 520 espectros.
 - **Meta-grafo:** Top-$k$ não-supervisionado simetrizado com `np.maximum(A, A.T)`. Adicionadas validação `1 <= k < n_samples` e ordenação estável (`kind="stable"`) para determinismo em empates de Jaccard.
 
 ### 2.3 Diagnóstico de Orquestração (`OLGA/codes/olga/main.py`, `utils.py` e `job.env`)
 - **Gravação de resultados (`utils.py` + `main.py`):** Com o ajuste de `write_results` em `OLGA/codes/olga/utils.py` (commit `ab0695d`), a saída é gravada em `OLGA/codes/results/<file_name>`. Para evitar que experimentos diferentes sobrescrevam ou misturem linhas indistinguíveis num único `OLGA.csv`, `main.py` agora compõe `file_name = f"{args.dataset}_{args.k}_OLGA.csv"` (onde `--k` recebe `EXP_TAG`).
 - **Resolução robusta de `dataset/` e leitura de `job.env`:** `main.py` resolve automaticamente `dataset/train/train.csv` e `dataset/test/test.csv` tanto a partir da raiz do repositório (`REPO_ROOT`, padrão do `docker_lab/run.sh`) quanto de `OLGA/codes/olga/`, e carrega os parâmetros `DATASET`, `EXP_TAG`, `GRAPH_MODEL`, `GRAPH_K` e `VISG2_*` diretamente do `job.env` (mantendo precedência total para flags CLI quando invocadas diretamente).
+- **Observabilidade no `docker-lab` (`main.py`):** Ativação de `line_buffering=True` em `stdout`/`stderr`, telemetria de tempo decorrido e uso de RAM (`psutil`, `_log_stage`) por etapa e captura explícita de *traceback* em `stdout` em caso de exceção não tratada, evitando logs vazios (0 bytes).
 - **Ordem entre máscaras de split e construção do grafo:** A geração de `train_mask`, `val_mask` e `test_mask` foi posicionada imediatamente antes do roteador de grafos, preservando exatamente o mesmo estado do gerador pseudoaleatório (`np.random.seed(42)`) do baseline `E00`. Isso permite:
   1. Auditar em modo somente-leitura o acoplamento estrutural entre `train`, `val` e `test` na Escolha Principal;
   2. Habilitar de forma limpa e sem *data leakage* as variantes restritas a `train_mask` na Decisão 02.
@@ -111,13 +112,16 @@ Limita o número de conexões visíveis mantidas por nó no NVG a partir de duas
 
 ---
 
-## 4. Guia Rápido de Execução na `ainetmachine` (`job.env` + `docker_lab`)
+## 4. Guia Rápido de Execução na `ainetmachine` (`job.env` + `docker-lab`)
 
-Na `ainetmachine`, o wrapper compartilhado é disparado apontando para o `job.env` na raiz do projeto:
+Na `ainetmachine`, dentro de `~/ATR-FTIR-integred-to-OLGA`, dispare o job e acompanhe pelo subcomando de logs do `docker-lab`:
 
 ```bash
-/opt/amlb_ainet_lab/docker_lab/run.sh ~/ATR-FTIR-integred-to-OLGA/job.env
+docker-lab run
+docker-lab logs renan_visg2_E00
 ```
+
+*(Dica: ao mudar de etapa no `job.env`, atualize também `JOB_NAME={USERNAME}_visg2_<etapa>` se quiser manter um arquivo de log separado em `/opt/docker_lab/logs/` para cada bateria.)*
 
 Cada experimento gera seu próprio arquivo isolado em `OLGA/codes/results/<DATASET>_<EXP_TAG>_OLGA.csv` e imprime no log o bloco `[VisG2 Diagnóstico Estrutural]`.
 
