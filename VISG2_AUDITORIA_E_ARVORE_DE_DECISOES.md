@@ -28,17 +28,19 @@
 - **Implicação para o NVG:** Como o espaçamento espectral é praticamente constante ($\approx 0{,}964\;\text{cm}^{-1}$ por ponto) e a condição de visibilidade (Eq. 1) é invariante a transformações afins no eixo horizontal, a distância em índices $|b - a|$ traduz-se diretamente em distância espectral física ($\Delta\tilde{\nu} \approx 0{,}964 \cdot |b - a|\;\text{cm}^{-1}$).
 
 ### 2.2 Diagnóstico do `build_visg2` Original (`OLGA/codes/olga/graph_builders.py`)
-- **Dependência:** `ts2vg==1.2.4` (`OLGA/codes/olga/requirements.txt`).
+- **Dependência:** `ts2vg==1.2.4` (`requirements.txt` na raiz do repositório).
 - **NVG por espectro:** Chamava `NaturalVG().build(X_total[i])` sem corte de vizinhança/alcance ($n$). Em espectros de $\sim 933$ pontos, picos dominantes atuam como *hubs* globais conectando centenas de bandas distantes e dominando o coeficiente de Jaccard.
   - *Nota sobre `ts2vg==1.2.4`:* `NaturalVG` não possui parâmetro nativo de limite de $n$ conexões por nó (`penetrable_limit` faz o inverso, aumentando a densidade; `weighted="abs_h_distance"` com `max_weight` usa desigualdade estrita `< max_weight` e muda `vg.edges` para triplas `(u, v, w)`). Por isso, a poda determinística pós-`NaturalVG` sobre pares canônicos `(min(u, v), max(u, v))` é a solução mais limpa, exata e auditável.
 - **Matriz de Jaccard:** Fiel às Eqs. 2–3 ($|E_i \cap E_j| / |E_i \cup E_j|$) sobre o triângulo superior espelhado. Otimizada algebricamente via $|E_i \cup E_j| = |E_i| + |E_j| - |E_i \cap E_j|$ (resultado idêntico sem alocar $134\,940$ conjuntos temporários).
 - **Meta-grafo:** Top-$k$ não-supervisionado simetrizado com `np.maximum(A, A.T)`. Adicionadas validação `1 <= k < n_samples` e ordenação estável (`kind="stable"`) para determinismo em empates de Jaccard.
 
-### 2.3 Diagnóstico de Orquestração (`OLGA/codes/olga/main.py`)
-- **`--k` legado vs. `k` real do grafo:** `--k` (`str`, default `'k=1'`) era usado apenas para nomear o CSV de saída (`pr`), enquanto o roteador fixava `k=3`. Adicionado `--graph_k` (`int`, default `3`) para controlar o $k$ real sem quebrar o prefixo `--k`.
+### 2.3 Diagnóstico de Orquestração (`OLGA/codes/olga/main.py`, `utils.py` e `job.env`)
+- **Gravação de resultados (`utils.py` + `main.py`):** Com o ajuste de `write_results` em `OLGA/codes/olga/utils.py` (commit `ab0695d`), a saída é gravada em `OLGA/codes/results/<file_name>`. Para evitar que experimentos diferentes sobrescrevam ou misturem linhas indistinguíveis num único `OLGA.csv`, `main.py` agora compõe `file_name = f"{args.dataset}_{args.k}_OLGA.csv"` (onde `--k` recebe `EXP_TAG`).
+- **Resolução robusta de `dataset/` e leitura de `job.env`:** `main.py` resolve automaticamente `dataset/train/train.csv` e `dataset/test/test.csv` tanto a partir da raiz do repositório (`REPO_ROOT`, padrão do `docker_lab/run.sh`) quanto de `OLGA/codes/olga/`, e carrega os parâmetros `DATASET`, `EXP_TAG`, `GRAPH_MODEL`, `GRAPH_K` e `VISG2_*` diretamente do `job.env` (mantendo precedência total para flags CLI quando invocadas diretamente).
 - **Ordem entre máscaras de split e construção do grafo:** A geração de `train_mask`, `val_mask` e `test_mask` foi posicionada imediatamente antes do roteador de grafos, preservando exatamente o mesmo estado do gerador pseudoaleatório (`np.random.seed(42)`) do baseline `E00`. Isso permite:
   1. Auditar em modo somente-leitura o acoplamento estrutural entre `train`, `val` e `test` na Escolha Principal;
   2. Habilitar de forma limpa e sem *data leakage* as variantes restritas a `train_mask` na Decisão 02.
+- **Baseline externo registrado (`ab0695d`):** `OLGA/codes/olga/run_cnn.py` adiciona um baseline supervisionado 1D-CNN (divisão 80%/20%), independente do fluxo one-class do OLGA/VisG2.
 - **Observação lateral registrada (fora do escopo — código do OLGA intocado):** em `main.py`, `train_mask` usa `classe_controle = 0` (`label = 0`), enquanto `oneclass.py` (linhas 52–55) trata `label == 1` como `interest` e `label == 0` como `outlier`. Mantido inalterado conforme restrição estrita de escopo para verificação futura dedicada.
 
 ---
@@ -109,38 +111,36 @@ Limita o número de conexões visíveis mantidas por nó no NVG a partir de duas
 
 ---
 
-## 4. Guia Rápido de Execução e Substituição no `docker-lab`
+## 4. Guia Rápido de Execução na `ainetmachine` (`job.env` + `docker_lab`)
 
-Todos os padrões CLI foram mantidos idênticos ao baseline `E00` (`--graph_k 3 --visg2_nvg_mode none --visg2_meta_mode unsupervised`), garantindo retrocompatibilidade total. Use `--k <tag>` para identificar cada configuração no arquivo de resultados (`../results/<dataset>_<tag>_OLGA.csv`).
-
-### Comandos Prontos por Etapa Experimental (executar em `OLGA/codes/olga/`)
+Na `ainetmachine`, o wrapper compartilhado é disparado apontando para o `job.env` na raiz do projeto:
 
 ```bash
-# E00 — Baseline atual (NVG irrestrito, k=3, meta-grafo não-supervisionado)
-docker-lab run main.py --graph_model visg2 --k visg2_E00_base
+/opt/amlb_ainet_lab/docker_lab/run.sh ~/ATR-FTIR-integred-to-OLGA/job.env
+```
 
-# E01 — Decisão 01 Principal (neighbor_limit com política padrão closest_band_union; usar n >= 3)
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode neighbor_limit --visg2_n 3 --visg2_neighbor_policy closest_band_union --k visg2_E01_union_n3
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode neighbor_limit --visg2_n 4 --visg2_neighbor_policy closest_band_union --k visg2_E01_union_n4
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode neighbor_limit --visg2_n 6 --visg2_neighbor_policy closest_band_union --k visg2_E01_union_n6
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode neighbor_limit --visg2_n 8 --visg2_neighbor_policy closest_band_union --k visg2_E01_union_n8
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode neighbor_limit --visg2_n 10 --visg2_neighbor_policy closest_band_union --k visg2_E01_union_n10
+Cada experimento gera seu próprio arquivo isolado em `OLGA/codes/results/<DATASET>_<EXP_TAG>_OLGA.csv` e imprime no log o bloco `[VisG2 Diagnóstico Estrutural]`.
 
-# E01R — Comparação com Sub-decisão 01.2 (política right_n; n=2 e n=4 equivalem a 1 e 3 atalhos à direita)
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode neighbor_limit --visg2_n 2 --visg2_neighbor_policy right_n --k visg2_E01R_right_n2
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode neighbor_limit --visg2_n 3 --visg2_neighbor_policy right_n --k visg2_E01R_right_n3
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode neighbor_limit --visg2_n 5 --visg2_neighbor_policy right_n --k visg2_E01R_right_n5
+### Valores no `job.env` por Etapa Experimental (alterar apenas as variáveis abaixo)
 
-# E02 — Sensibilidade ao k do meta-grafo (fixando o melhor n da etapa E01, ex.: n=5)
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode neighbor_limit --visg2_n 5 --graph_k 5 --k visg2_E02_n5_k5
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode neighbor_limit --visg2_n 5 --graph_k 7 --k visg2_E02_n5_k7
+| Etapa | `EXP_TAG` | `GRAPH_K` | `VISG2_NVG_MODE` | `VISG2_N` | `VISG2_NEIGHBOR_POLICY` | `VISG2_META_MODE` |
+| :--- | :--- | :---: | :--- | :---: | :--- | :--- |
+| **E00 (Baseline atual)** | `visg2_E00_base` | `3` | `none` | `none` | `closest_band_union` | `unsupervised` |
+| **E01 (Principal — união)** | `visg2_E01_union_n3` *(varie 3, 4, 6, 8, 10)* | `3` | `neighbor_limit` | `3, 4, 6, 8, 10` | `closest_band_union` | `unsupervised` |
+| **E01R (Sub-decisão `right_n`)** | `visg2_E01R_right_n2` *(varie 2, 3, 5)* | `3` | `neighbor_limit` | `2, 3, 5` | `right_n` | `unsupervised` |
+| **E02 (Sensibilidade a `k`)** | `visg2_E02_k5` *(varie 5, 7)* | `5, 7` | `neighbor_limit` | *melhor `n`* | *melhor política* | `unsupervised` |
+| **E03 (Alt. D01 — janela)** | `visg2_E03_win10` *(varie 10, 25)* | *melhor `k`* | `band_window` | `10, 25` | `closest_band_union` | `unsupervised` |
+| **E04 (Alt. D02 — treino)** | `visg2_E04_trainsup` | *melhor `k`* | *melhor modo* | *melhor `n`* | *melhor política* | `train_supervised` |
 
-# E03 — Decisão 01 Alternativa em segundo plano (band_window: w em índices de banda)
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode band_window --visg2_n 10 --k visg2_E03_win10
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode band_window --visg2_n 25 --k visg2_E03_win25
+### Alternativa via CLI direta (em shell interativo com `.venv` — flags CLI prevalecem sobre `job.env`)
 
-# E04 — Decisão 02 Alternativa em segundo plano (restrição a train_mask sem label leakage)
-docker-lab run main.py --graph_model visg2 --visg2_nvg_mode neighbor_limit --visg2_n 5 --visg2_meta_mode train_supervised --k visg2_E04_trainsup_n5
+```bash
+.venv/bin/python OLGA/codes/olga/main.py \
+  --graph_model visg2 \
+  --visg2_nvg_mode neighbor_limit \
+  --visg2_n 4 \
+  --visg2_neighbor_policy closest_band_union \
+  --k visg2_E01_union_n4
 ```
 
 ---

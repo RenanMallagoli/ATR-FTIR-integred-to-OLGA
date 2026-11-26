@@ -9,6 +9,7 @@ from sklearn.exceptions import UndefinedMetricWarning
 import numpy as np
 import pandas as pd
 import random
+import os
 import sys
 from pathlib import Path
 import time
@@ -98,10 +99,58 @@ def train_parameters(l_graphs, patience, hidden1, hidden2, r, lr, file_name, pr,
 
     write_results(metrics, file_name, l_param, pr)
 
+def _load_job_env_defaults():
+    """
+    Lê parâmetros opcionais de experimento definidos no job.env da raiz do projeto
+    (ou variáveis de ambiente), permitindo configurar rodadas no docker_lab sem editar código.
+    Argumentos passados via CLI sempre têm precedência sobre estes defaults.
+    """
+    cfg = {}
+    job_env_path = Path(__file__).resolve().parents[3] / "job.env"
+    if job_env_path.is_file():
+        with open(job_env_path, encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, val = line.split("=", 1)
+                val = val.split("#", 1)[0].strip().strip('"').strip("'")
+                cfg[key.strip()] = val
+
+    for key in (
+        "DATASET",
+        "EXP_TAG",
+        "GRAPH_MODEL",
+        "GRAPH_K",
+        "VISG2_NVG_MODE",
+        "VISG2_N",
+        "VISG2_NEIGHBOR_POLICY",
+        "VISG2_META_MODE",
+    ):
+        if key in os.environ:
+            cfg[key] = os.environ[key].strip()
+
+    raw_n = cfg.get("VISG2_N", "")
+    visg2_n_default = None if raw_n.lower() in ("", "none", "null") else int(raw_n)
+
+    return {
+        "dataset": cfg.get("DATASET", "food") or "food",
+        "k_tag": cfg.get("EXP_TAG", "k=1") or "k=1",
+        "graph_model": cfg.get("GRAPH_MODEL", "knn") or "knn",
+        "graph_k": int(cfg["GRAPH_K"]) if cfg.get("GRAPH_K") else 3,
+        "visg2_nvg_mode": cfg.get("VISG2_NVG_MODE", "none") or "none",
+        "visg2_n": visg2_n_default,
+        "visg2_neighbor_policy": cfg.get("VISG2_NEIGHBOR_POLICY", "closest_band_union") or "closest_band_union",
+        "visg2_meta_mode": cfg.get("VISG2_META_MODE", "unsupervised") or "unsupervised",
+    }
+
+
 if __name__ == '__main__':
+    env_defaults = _load_job_env_defaults()
+
     parser = argparse.ArgumentParser(description='OLGA')
     
-    parser.add_argument("--k", type=str, default='k=1', help="k from graph modeling")
+    parser.add_argument("--k", type=str, default=env_defaults["k_tag"], help="Tag do experimento usada no nome do CSV de saída")
     
     parser.add_argument("--h1", type=int, default=48, help="neurons from first hidden layer")
     
@@ -115,33 +164,34 @@ if __name__ == '__main__':
     
     parser.add_argument("--n-epochs", type=int, default=5000, help="training epochs")
     
-    parser.add_argument("--dataset", type=str, default="food", help="dataset")
+    parser.add_argument("--dataset", type=str, default=env_defaults["dataset"], help="dataset")
 
-    parser.add_argument("--graph_model", type=str, default="knn", 
+    parser.add_argument("--graph_model", type=str, default=env_defaults["graph_model"], 
                         choices=["knn", "sknn", "mknn", "smknn", "cosine", "pearson", "dtw", "visg2"], 
                         help="Modelo de pré-processamento do grafo")
 
-    parser.add_argument("--graph_k", type=int, default=3,
+    parser.add_argument("--graph_k", type=int, default=env_defaults["graph_k"],
                         help="k efetivo para formação do meta-grafo VisG2 (padrão baseline E00: 3)")
 
-    parser.add_argument("--visg2_nvg_mode", type=str, default="none",
+    parser.add_argument("--visg2_nvg_mode", type=str, default=env_defaults["visg2_nvg_mode"],
                         choices=["none", "neighbor_limit", "band_window"],
                         help="Decisão 01: restrição de esparsidade no NVG (padrão baseline E00: none)")
 
-    parser.add_argument("--visg2_n", type=int, default=None,
+    parser.add_argument("--visg2_n", type=int, default=env_defaults["visg2_n"],
                         help="Decisão 01: parâmetro n (limite de vizinhos) ou w (janela de bandas) no NVG")
 
-    parser.add_argument("--visg2_neighbor_policy", type=str, default="closest_band_union",
+    parser.add_argument("--visg2_neighbor_policy", type=str, default=env_defaults["visg2_neighbor_policy"],
                         choices=["closest_band_union", "right_n"],
                         help="Sub-decisão 01: política de seleção dos n vizinhos visíveis (padrão: closest_band_union)")
 
-    parser.add_argument("--visg2_meta_mode", type=str, default="unsupervised",
+    parser.add_argument("--visg2_meta_mode", type=str, default=env_defaults["visg2_meta_mode"],
                         choices=["unsupervised", "train_only", "train_supervised"],
                         help="Decisão 02: critério de conexão no meta-grafo VisG2 (padrão baseline E00: unsupervised)")
     
     args = parser.parse_args()
 
-    file_name = 'OLGA.csv' 
+    # Compõe o nome único do CSV para o write_results(utils.py), que grava em OLGA/codes/results/<file_name>
+    file_name = f"{args.dataset}_{args.k}_OLGA.csv" 
 
     l_graphs = []
 
@@ -162,8 +212,13 @@ if __name__ == '__main__':
             y += (A * np.random.uniform(0.5, 1.5)) * np.exp(-((wavenumbers - (mu + np.random.normal(0, 5)))**2) / (2 * sigma**2))
         X_anomaly.append(y + np.random.normal(0, 0.02, size=500))
         
-    train_path = "dataset/train/train.csv"
-    test_path = "dataset/test/test.csv"
+    script_dir = Path(__file__).resolve().parent
+    train_path = Path("dataset/train/train.csv")
+    if not train_path.is_file():
+        train_path = script_dir / "dataset" / "train" / "train.csv"
+    test_path = Path("dataset/test/test.csv")
+    if not test_path.is_file():
+        test_path = script_dir / "dataset" / "test" / "test.csv"
     
     print("Carregando e processando dados reais...")
     X_total, y_total, wavenumbers = dl.load_and_clean_real_data(train_path, test_path)
@@ -276,3 +331,4 @@ if __name__ == '__main__':
     pr = '../results/' + args.dataset + '_' + args.k + '_'
     
     train_parameters(l_graphs, args.patience, args.h1, args.h2, args.radius, args.lr, file_name, pr, args.n_epochs)
+    print(f"[Resultados] Métricas gravadas em: OLGA/codes/results/{file_name}")
