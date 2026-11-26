@@ -121,6 +121,8 @@ docker-lab run
 docker-lab logs renan_visg2_E00
 ```
 
+> **Execução em bateria controlada (`E01` + `E01R`):** Para rodar todas as 8 configurações da Decisão 01 (`E01` com `closest_band_union` para `n ∈ {3, 4, 6, 8, 10}` e `E01R` com `right_n` para `n ∈ {2, 3, 5}`) em processos isolados do `main.py` (~2–3 min no total), ative `SCRIPT=OLGA/codes/olga/run_visg2_sweep.py` e `JOB_NAME={USERNAME}_visg2_E01` no `job.env` e acompanhe com `docker-lab logs renan_visg2_E01`.
+
 *(Dica: ao mudar de etapa no `job.env`, atualize também `JOB_NAME={USERNAME}_visg2_<etapa>` se quiser manter um arquivo de log separado em `/opt/docker_lab/logs/` para cada bateria.)*
 
 Cada experimento gera seu próprio arquivo isolado em `OLGA/codes/results/<DATASET>_<EXP_TAG>_OLGA.csv` e imprime no log o bloco `[VisG2 Diagnóstico Estrutural]`.
@@ -153,4 +155,6 @@ Cada experimento gera seu próprio arquivo isolado em `OLGA/codes/results/<DATAS
 
 | ID Exp. | `nvg_mode` / `policy` | `n` / `w` | `k` | `meta_mode` | Arestas médias/NVG | Jaccard médio ± dp | Grau médio meta | Comp. conexas | Homofilia (%) | % `train`–não-treino | Macro-F1 (Val) | Tempo (s) |
 | :--- | :--- | :---: | :---: | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **E00** | `none` / `-` | `None` | `3` | `unsupervised` | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ |
+| **E00** | `none` / `-` | `None` | `3` | `unsupervised` | `17413.8 ± 2144.3` | `0.4542 ± 0.1011` | `4.67` | `6` | `77.16%` | `28.4%` (`14.9%` val / `13.5%` test) | `0.4768` *(ep. 83; ES ep. 383)* | `20.3` *(VisG2: 14.7s; OLGA: 4.2s; RAM: 610.4 MB)* |
+
+> **Nota de auditoria pós-`E00` (fora do escopo do VisG2 — modelo OLGA mantido intocado):** observou-se queda do Macro-F1 após a época `150` (`0.4358` na época 100 → `0.4195` na 200 → `0.3606` na 300, com pico de `0.4768` na época 83 antes do `multi_task=150`), confirmando empiricamente a observação lateral da Seção 2.3 (inversão `label=0` em `train_mask` vs. `label==1` esperado em `oneclass.py`). Esse comportamento fica registrado para análise dedicada após concluirmos a etapa estrita do VisG2.
