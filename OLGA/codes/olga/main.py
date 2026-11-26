@@ -120,6 +120,24 @@ if __name__ == '__main__':
     parser.add_argument("--graph_model", type=str, default="knn", 
                         choices=["knn", "sknn", "mknn", "smknn", "cosine", "pearson", "dtw", "visg2"], 
                         help="Modelo de pré-processamento do grafo")
+
+    parser.add_argument("--graph_k", type=int, default=3,
+                        help="k efetivo para formação do meta-grafo VisG2 (padrão baseline E00: 3)")
+
+    parser.add_argument("--visg2_nvg_mode", type=str, default="none",
+                        choices=["none", "neighbor_limit", "band_window"],
+                        help="Decisão 01: restrição de esparsidade no NVG (padrão baseline E00: none)")
+
+    parser.add_argument("--visg2_n", type=int, default=None,
+                        help="Decisão 01: parâmetro n (limite de vizinhos) ou w (janela de bandas) no NVG")
+
+    parser.add_argument("--visg2_neighbor_policy", type=str, default="closest_band_union",
+                        choices=["closest_band_union", "right_n"],
+                        help="Sub-decisão 01: política de seleção dos n vizinhos visíveis (padrão: closest_band_union)")
+
+    parser.add_argument("--visg2_meta_mode", type=str, default="unsupervised",
+                        choices=["unsupervised", "train_only", "train_supervised"],
+                        help="Decisão 02: critério de conexão no meta-grafo VisG2 (padrão baseline E00: unsupervised)")
     
     args = parser.parse_args()
 
@@ -150,30 +168,6 @@ if __name__ == '__main__':
     print("Carregando e processando dados reais...")
     X_total, y_total, wavenumbers = dl.load_and_clean_real_data(train_path, test_path)
 
-    # Roteador de Modelos de Grafo
-    if args.graph_model == "knn":
-        A_knn = gb.build_knn(X_total, k=3)
-    elif args.graph_model == "sknn":    
-        A_knn = gb.build_sknn(X_total, k=3)
-    elif args.graph_model == "mknn":
-        A_knn = gb.build_mknn(X_total, k=3)
-    elif args.graph_model == "smknn":
-        A_knn = gb.build_smknn(X_total, k=3)
-    elif args.graph_model == "cosine":
-        A_knn = gb.build_cosine_knn(X_total, k=3)
-    elif args.graph_model == "pearson":
-        A_knn = gb.build_pearson_network(X_total, threshold=0.95)
-    elif args.graph_model == "dtw":
-        A_knn = gb.build_dtw_knn(X_total, k=3)
-    elif args.graph_model == "visg2": 
-        A_knn = gb.build_visg2(X_total, k=3)
-
-    # Convertendo para PyTorch
-    x_tensor = torch.FloatTensor(X_total)
-    y_tensor = torch.LongTensor(y_total.copy())
-    rows, cols = np.where(A_knn == 1)
-    edge_index = torch.LongTensor(np.vstack((rows, cols)))
-
     num_nodes = len(y_total)
 
     train_mask = np.zeros(num_nodes, dtype=bool)
@@ -191,6 +185,7 @@ if __name__ == '__main__':
     anomaly_idx = np.where(y_total == classe_anomalia)[0]
 
     # Embaralha os índices para garantir que não haja viés na ordem do CSV
+    # (Mantém exatamente a mesma semente aleatória np.random.seed(42) do baseline E00)
     np.random.shuffle(control_idx)
     np.random.shuffle(anomaly_idx)
 
@@ -208,6 +203,47 @@ if __name__ == '__main__':
     # TESTE: Recebe os 15% restantes dos Controles e a outra METADE das Anomalias
     test_mask[control_idx[n_train+n_val:]] = True
     test_mask[anomaly_idx[len(anomaly_idx)//2:]] = True
+
+    # Roteador de Modelos de Grafo
+    if args.graph_model == "knn":
+        A_knn = gb.build_knn(X_total, k=3)
+    elif args.graph_model == "sknn":    
+        A_knn = gb.build_sknn(X_total, k=3)
+    elif args.graph_model == "mknn":
+        A_knn = gb.build_mknn(X_total, k=3)
+    elif args.graph_model == "smknn":
+        A_knn = gb.build_smknn(X_total, k=3)
+    elif args.graph_model == "cosine":
+        A_knn = gb.build_cosine_knn(X_total, k=3)
+    elif args.graph_model == "pearson":
+        A_knn = gb.build_pearson_network(X_total, threshold=0.95)
+    elif args.graph_model == "dtw":
+        A_knn = gb.build_dtw_knn(X_total, k=3)
+    elif args.graph_model == "visg2": 
+        A_knn, visg2_diag = gb.build_visg2(
+            X_total,
+            k=args.graph_k,
+            nvg_mode=args.visg2_nvg_mode,
+            nvg_param=args.visg2_n,
+            neighbor_policy=args.visg2_neighbor_policy,
+            meta_mode=args.visg2_meta_mode,
+            y=y_total,
+            train_mask=train_mask,
+            val_mask=val_mask,
+            test_mask=test_mask,
+            return_diagnostics=True,
+        )
+        print(
+            f"[VisG2 Config] k={args.graph_k} | nvg_mode={args.visg2_nvg_mode} | "
+            f"n={args.visg2_n} | policy={args.visg2_neighbor_policy} | meta_mode={args.visg2_meta_mode}"
+        )
+        print(gb.format_visg2_diagnostics(visg2_diag))
+
+    # Convertendo para PyTorch
+    x_tensor = torch.FloatTensor(X_total)
+    y_tensor = torch.LongTensor(y_total.copy())
+    rows, cols = np.where(A_knn == 1)
+    edge_index = torch.LongTensor(np.vstack((rows, cols)))
 
     # =====================================================================
     # 2. PONTE: ADAPTANDO PARA O FORMATO NETWORKX ESPERADO PELO OLGA
