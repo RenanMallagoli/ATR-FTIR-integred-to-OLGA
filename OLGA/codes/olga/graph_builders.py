@@ -105,7 +105,7 @@ def build_dtw_knn(X_total, k=3):
         
     return np.maximum(A, A.T)
 
-def _prune_nvg_edges(canonical_edges, nvg_mode="none", nvg_param=None, neighbor_policy="closest_band_union"):
+def _prune_nvg_edges(canonical_edges, nvg_mode="neighbor_limit", nvg_param=8, neighbor_policy="closest_band_union"):
     """
     Aplica a restrição de esparsidade/vizinhança (Decisão 01) sobre o conjunto
     canônico de arestas não-direcionadas {(u, v) com u < v} de um NVG.
@@ -159,8 +159,8 @@ def _prune_nvg_edges(canonical_edges, nvg_mode="none", nvg_param=None, neighbor_
 
 def _extract_nvg_edges(
     spectrum,
-    nvg_mode="none",
-    nvg_param=None,
+    nvg_mode="neighbor_limit",
+    nvg_param=8,
     neighbor_policy="closest_band_union",
     vg_cls=None,
 ):
@@ -432,8 +432,8 @@ def format_visg2_diagnostics(diag):
 def build_visg2(
     X_total,
     k=3,
-    nvg_mode="none",
-    nvg_param=None,
+    nvg_mode="neighbor_limit",
+    nvg_param=8,
     neighbor_policy="closest_band_union",
     meta_mode="unsupervised",
     y=None,
@@ -446,9 +446,9 @@ def build_visg2(
     """
     Constrói o Meta-Grafo baseado no VisG2 (Lima Filho, Sabino-Silva & Carneiro, IJCNN 2025),
     parametrizado conforme a Árvore de Decisões do projeto:
-      - Decisão 01 (NVG): nvg_mode ('none' | 'neighbor_limit' | 'band_window'), nvg_param (n ou w),
-        e neighbor_policy ('closest_band_union' | 'right_n').
-      - Decisão 02 (Meta-grafo): k e meta_mode ('unsupervised' | 'train_only' | 'train_supervised').
+      - Decisão 01 (NVG): nvg_mode ('neighbor_limit' [padrão] | 'none' [baseline E00] | 'band_window'),
+        nvg_param (n=8 [padrão validado] ou largura w), e neighbor_policy ('closest_band_union' [padrão] | 'right_n').
+      - Decisão 02 (Meta-grafo): k (padrão validado k=3) e meta_mode ('unsupervised' [padrão] | 'train_only' | 'train_supervised').
     """
     n_samples = len(X_total)
 

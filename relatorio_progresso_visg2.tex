@@ -1,0 +1,104 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage[margin=2.0cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,array}
+\usepackage[table]{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{ufublue}{HTML}{1B4F72}
+\definecolor{accent}{HTML}{117A65}
+\definecolor{softbg}{HTML}{F4F7F9}
+\definecolor{bestrow}{HTML}{EAF4F0}
+
+\setlength{\parskip}{0.45em}
+\setlength{\parindent}{0pt}
+
+\title{\textbf{\color{ufublue}Detecção Não Invasiva de Diabetes via Espectros ATR-FTIR:\\
+Evolução Topológica do Meta-Grafo VisG2 Integrado ao OLGA}}
+\author{Renan Cesar Vieira Mallagoli \quad\textbar\quad Iniciação Científica — Grupo AI Net (FACOM/UFU)}
+\date{Novembro de 2026}
+
+\begin{document}
+\maketitle
+\vspace{-1.2em}
+
+\section{Ideia Central e Pipeline Experimental}
+Este projeto investiga a triagem não invasiva de diabetes a partir de assinaturas bioquímicas salivares obtidas por espectroscopia \textbf{ATR-FTIR}, modelando cada espectro como um grafo de visibilidade e agrupando os pacientes em um meta-grafo (\textbf{VisG2}) consumido pelo \textit{One-Class Graph Autoencoder} (\textbf{OLGA}).
+
+Os experimentos atuais utilizam \textbf{520 espectros rotulados} (250 controles e 270 diabéticos), isolando exclusivamente as bandas espectrais sem fusão clínica. O pré-processamento via \texttt{ftir-prep} aplica truncamento na região \textit{fingerprint} ($900\text{--}1800\;\text{cm}^{-1}$, resultando em \textbf{933 bandas} com passo $\approx 0{,}964\;\text{cm}^{-1}$), correção de linha de base \textit{rubberband}, suavização Savitzky--Golay (\texttt{polyorder=2}) e normalização \textit{minmax}. No OLGA transdutivo, apenas 70\% dos controles integram o treino supervisionado da hiperesfera (\textit{one-class}), enquanto validação e teste contêm controles e diabéticos sem acesso aos rótulos na codificação.
+
+\begin{center}
+\begin{tikzpicture}[
+    node distance=0.45cm,
+    box/.style={
+        rectangle, rounded corners=4pt, draw=ufublue!80, fill=softbg,
+        thick, text width=2.45cm, minimum height=1.25cm,
+        align=center, font=\footnotesize\sffamily
+    },
+    arr/.style={-{Stealth[length=2.2mm]}, thick, ufublue}
+]
+    \node[box] (raw) {\textbf{ATR-FTIR}\\520 $\times$ 933\\(\textit{fingerprint})};
+    \node[box, right=of raw] (nvg) {\textbf{NVG Esparso}\\Poda bilateral\\($n=8$ vizinhos)};
+    \node[box, right=of nvg] (jac) {\textbf{Jaccard CSR}\\Eqs.\ 2--3 exatas\\($B B^\top$)};
+    \node[box, right=of jac, fill=bestrow, draw=accent] (meta) {\textbf{Meta-Grafo VisG2}\\Top-$k$ ($k=3$)\\não-sup.};
+    \node[box, right=of meta] (olga) {\textbf{OLGA (GAE)}\\Treino \textit{one-class}\\transdutivo};
+
+    \draw[arr] (raw) -- (nvg);
+    \draw[arr] (nvg) -- (jac);
+    \draw[arr] (jac) -- (meta);
+    \draw[arr] (meta) -- (olga);
+\end{tikzpicture}
+\end{center}
+
+\section{Evolução do VisG2 e Árvore de Decisões}
+Com base no framework \textbf{VisG2} (Lima Filho, Sabino-Silva \& Carneiro, IJCNN 2025), cada espectro é convertido em um \textit{Natural Visibility Graph} (NVG, Eq.\ 1), a similaridade entre espectros é medida pelo coeficiente de Jaccard sobre conjuntos de arestas ($\lvert E_i \cap E_j \rvert / \lvert E_i \cup E_j \rvert$, Eqs.\ 2--3) e os super-nós são conectados por top-$k$ (Eq.\ 4).
+
+Na auditoria do código base (\texttt{E00}), observou-se que o NVG irrestrito gerava em média $17.413{,}8$ arestas por espectro, dominadas por \textit{hubs} de longo alcance, além de consumir $>4{,}5\;\text{min}$ em laços Python. A fatoração da interseção em matriz esparsa CSR em \textit{streaming} ($B B^\top$) manteve equivalência matemática bit a bit ($\Delta_{\max}=0{,}0$) e reduziu o tempo total por experimento para $\sim 20\;\text{s}$ ($\sim 610\;\text{MB}$ de RAM). Estruturou-se então uma Árvore de Decisões controlada para auditar dois eixos sem alterar o modelo OLGA:
+
+\begin{itemize}
+    \item \textbf{Decisão 01 — Esparsidade do NVG ($n$):} Como o \texttt{ts2vg} não limita graus nativamente, implementou-se poda determinística pós-NVG com três opções: (i) \textbf{Principal:} \texttt{neighbor\_limit} bilateral (\texttt{closest\_band\_union}), mantendo os $n$ vizinhos visíveis mais próximos em $\lvert b-a \rvert$ com simetria nos dois flancos das bandas; (ii) \textbf{Sub-política:} \texttt{right\_n}, mantendo apenas os $n$ primeiros visíveis à direita ($b>a$); e (iii) \textbf{Alternativa:} janela fixa \texttt{band\_window} ($\lvert b-a \rvert \le w$).
+    \item \textbf{Decisão 02 — Formação do Meta-Grafo ($k$ e rótulos):} (i) \textbf{Principal:} top-$k$ puramente \texttt{unsupervised}, preservando a integridade \textit{one-class} com monitoramento de acoplamento entre partições e homofilia diagnóstica \textit{offline}; e (ii) \textbf{Alternativa:} \texttt{train\_supervised}, restringindo as arestas de saída dos nós de treino a candidatos de \texttt{train\_mask} com $y_i=y_j$, enquanto nós de validação/teste permanecem não-supervisionados para preservar o subgrafo \texttt{g\_unsup} exigido pelo OLGA sem \textit{label leakage}.
+\end{itemize}
+
+\section{Marcos Experimentais (20 Execuções Controladas)}
+Foram executadas \textbf{20 rodadas isoladas} (\texttt{E00} a \texttt{E05\_fine}) na máquina remota (\texttt{docker-lab}). A Tabela~\ref{tab:marcos} resume os principais marcos comparativos.
+
+\begin{table}[ht]
+\centering
+\caption{Marcos experimentais do VisG2 integrado ao OLGA (520 espectros ATR-FTIR).}
+\label{tab:marcos}
+\small
+\begin{tabular}{@{}l l c c r r r@{}}
+\toprule
+\textbf{Exp.} & \textbf{Modo / Política NVG} & \textbf{$n$ ou $w$} & \textbf{$k$} & \textbf{Arestas/NVG} & \textbf{Homofilia} & \textbf{Macro-F1 (Val)} \\
+\midrule
+\texttt{E00} & \texttt{none} (baseline irrestrito) & -- & 3 & $17.413{,}8$ & $77{,}16\%$ & $0{,}4768$ \\
+\texttt{E01R\_n3} & \texttt{neighbor\_limit} / \texttt{right\_n} & 3 & 3 & $2.394{,}0$ & $80{,}72\%$ & $0{,}5116$ \\
+\texttt{E03\_w50} & \texttt{band\_window} (melhor janela) & 50 & 3 & $9.998{,}7$ & $78{,}44\%$ & $0{,}5038$ \\
+\texttt{E05\_n7\_k3} & \texttt{neighbor\_limit} / \texttt{closest\_band\_union} & 7 & 3 & $4.242{,}1$ & $82{,}32\%$ & $0{,}5320$ \\
+\rowcolor{bestrow}
+\textbf{\texttt{E01\_n8}} & \textbf{\texttt{closest\_band\_union} (Campeão)} & \textbf{8} & \textbf{3} & \textbf{$4.766{,}1$} & \textbf{$83{,}31\%$} & \textbf{$0{,}5408$} \\
+\texttt{E05\_n9\_k3} & \texttt{neighbor\_limit} / \texttt{closest\_band\_union} & 9 & 3 & $5.297{,}8$ & $82{,}38\%$ & $0{,}4903$ \\
+\texttt{E04\_tsup} & \texttt{closest\_band\_union} (\texttt{train\_supervised}) & 8 & 3 & $4.766{,}1$ & $90{,}58\%$ & $0{,}5393$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{itemize}
+    \item \textbf{Ganho sobre o baseline:} Todas as configurações esparsas superaram o \texttt{E00}. O campeão \texttt{E01\_n8} reduziu o NVG em \textbf{72,6\%}, elevou a homofilia em \textbf{+6,15 p.p.} ($77{,}16\% \rightarrow 83{,}31\%$) e o Macro-F1 em \textbf{+6,40 p.p.} ($0{,}4768 \rightarrow \mathbf{0{,}5408}$).
+    \item \textbf{Máximo local discreto estrito em $(n=8, k=3)$:} O refinamento fino (\texttt{E05\_fine}) mostrou que todos os vizinhos inteiros imediatos ficam abaixo do campeão — em $n$ ($n=7$: $0{,}5320$; $n=9$: $0{,}4903$) e em $k$ ($k=2$: $0{,}5351$; $k=4$: $0{,}5207$; $k=5$: $0{,}5055$; $k=7$: $0{,}4576$) —, além da superioridade da simetria bilateral frente a \texttt{right\_n} e à janela rígida \texttt{band\_window}.
+    \item \textbf{Pureza no modo \texttt{train\_supervised} (\texttt{E04\_tsup}):} Isolar o núcleo de treino derrubou o acoplamento \texttt{train}--não-treino de $26{,}6\%$ para $15{,}7\%$ e elevou a homofilia a \textbf{$90{,}58\%$}, mantendo Macro-F1 equivalente ($0{,}5393$).
+\end{itemize}
+
+\section{Estado Consolidado e Próximos Passos}
+A configuração validada (\texttt{nvg\_mode=neighbor\_limit}, \texttt{nvg\_param=8}, \texttt{neighbor\_policy=closest\_band\_union}, \texttt{k=3}, \texttt{meta\_mode=unsupervised}) foi promovida a padrão direto de \texttt{build\_visg2} e do \texttt{job.env}, mantendo \texttt{nvg\_mode=none} disponível para reprodutibilidade do \texttt{E00}.
+
+Na etapa seguinte (já fora do escopo isolado do VisG2), a auditoria identificou uma inversão de convenção de rótulo no pipeline atual (\texttt{train\_mask} com \texttt{label=0} frente a \texttt{label==1} esperado em \texttt{oneclass.py}), explicando a queda sistemática do F1 após a época 150 (\texttt{multi\_task=150}). Alinhar essa convenção no OLGA e reavaliar as variantes \texttt{unsupervised} e \texttt{train\_supervised} é o próximo passo imediato da pesquisa.
+
+\end{document}

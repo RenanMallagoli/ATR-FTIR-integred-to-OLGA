@@ -131,15 +131,21 @@ def _load_job_env_defaults():
         if key in os.environ:
             cfg[key] = os.environ[key].strip()
 
+    nvg_mode_default = cfg.get("VISG2_NVG_MODE", "neighbor_limit") or "neighbor_limit"
     raw_n = cfg.get("VISG2_N", "")
-    visg2_n_default = None if raw_n.lower() in ("", "none", "null") else int(raw_n)
+    if raw_n.lower() in ("none", "null"):
+        visg2_n_default = None
+    elif raw_n == "":
+        visg2_n_default = None if nvg_mode_default == "none" else 8
+    else:
+        visg2_n_default = int(raw_n)
 
     return {
         "dataset": cfg.get("DATASET", "food") or "food",
         "k_tag": cfg.get("EXP_TAG", "k=1") or "k=1",
         "graph_model": cfg.get("GRAPH_MODEL", "knn") or "knn",
         "graph_k": int(cfg["GRAPH_K"]) if cfg.get("GRAPH_K") else 3,
-        "visg2_nvg_mode": cfg.get("VISG2_NVG_MODE", "none") or "none",
+        "visg2_nvg_mode": nvg_mode_default,
         "visg2_n": visg2_n_default,
         "visg2_neighbor_policy": cfg.get("VISG2_NEIGHBOR_POLICY", "closest_band_union") or "closest_band_union",
         "visg2_meta_mode": cfg.get("VISG2_META_MODE", "unsupervised") or "unsupervised",
@@ -189,14 +195,14 @@ if __name__ == '__main__':
                             help="Modelo de pré-processamento do grafo")
 
         parser.add_argument("--graph_k", type=int, default=env_defaults["graph_k"],
-                            help="k efetivo para formação do meta-grafo VisG2 (padrão baseline E00: 3)")
+                            help="k efetivo para formação do meta-grafo VisG2 (padrão validado: 3)")
 
         parser.add_argument("--visg2_nvg_mode", type=str, default=env_defaults["visg2_nvg_mode"],
                             choices=["none", "neighbor_limit", "band_window"],
-                            help="Decisão 01: restrição de esparsidade no NVG (padrão baseline E00: none)")
+                            help="Decisão 01: restrição de esparsidade no NVG (padrão validado: neighbor_limit; 'none' reproduz E00)")
 
         parser.add_argument("--visg2_n", type=int, default=env_defaults["visg2_n"],
-                            help="Decisão 01: parâmetro n (limite de vizinhos) ou w (janela de bandas) no NVG")
+                            help="Decisão 01: parâmetro n (limite de vizinhos, padrão validado: 8) ou w (janela de bandas) no NVG")
 
         parser.add_argument("--visg2_neighbor_policy", type=str, default=env_defaults["visg2_neighbor_policy"],
                             choices=["closest_band_union", "right_n"],

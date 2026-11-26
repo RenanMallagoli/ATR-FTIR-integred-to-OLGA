@@ -2,7 +2,7 @@
 
 > **Projeto:** Iniciação Científica (UFU — Grupo AI Net) — Detecção não invasiva de diabetes via espectros ATR-FTIR com grafos e OLGA (*One-Class Graph Autoencoder*).  
 > **Referência teórica base:** Lima Filho, Sabino-Silva & Carneiro (IJCNN 2025), *"High-level classification based on meta-graph of visibility graphs for Autism detection"*.  
-> **Status desta etapa:** Concluída — todas as **17** execuções controladas (`E00` a `E04`) foram auditadas e consolidadas na `ainetmachine` (`docker-lab`), definindo a configuração campeã do VisG2.
+> **Status desta etapa:** Concluída — todas as **20** execuções controladas (`E00` a `E05_fine`) foram auditadas e consolidadas na `ainetmachine` (`docker-lab`), definindo a configuração campeã do VisG2.
 
 ---
 
@@ -173,16 +173,22 @@ Cada experimento gera seu próprio arquivo isolado em `OLGA/codes/results/<DATAS
 | **E03_w25** | `band_window` / `-` | `25` | `3` | `unsupervised` | `6847.0 ± 421.5` | `0.5376 ± 0.0911` | `4.80` | `12` | `79.33%` | `27.0%` (`14.1%` val / `12.9%` test) | `0.4545` *(ES ep. 413)* | `18.4` |
 | **E03_w50** | `band_window` / `-` | `50` | `3` | `unsupervised` | `9998.7 ± 908.2` | `0.5135 ± 0.0981` | `4.73` | `10` | `78.44%` | `27.6%` (`14.5%` val / `13.1%` test) | `0.5038` *(ES ep. 381)* | `19.8` |
 | **E04_tsup** | `neighbor_limit` / `closest_band_union` | **`8`** | **`3`** | **`train_supervised`** | `4766.1 ± 93.3` | `0.4367 ± 0.0529` | `4.82` | **`3`** | **`90.58%`** | **`15.7%`** (`7.8%` val / `7.9%` test) | **`0.5393`** *(ES ep. 399)* | `22.8` |
+| **E05_n7_k3** | `neighbor_limit` / `closest_band_union` | `7` | `3` | `unsupervised` | `4242.1 ± 64.2` | `0.4443 ± 0.0512` | `4.63` | `8` | `82.32%` | `26.9%` (`14.2%` val / `12.7%` test) | `0.5320` *(ES ep. 300)* | `21.4` |
+| **E05_n9_k3** | `neighbor_limit` / `closest_band_union` | `9` | `3` | `unsupervised` | `5297.8 ± 143.8` | `0.4311 ± 0.0552` | `4.63` | `11` | `82.38%` | `26.9%` (`13.4%` val / `13.5%` test) | `0.4903` *(ES ep. 393)* | `23.1` |
+| **E05_n8_k4** | `neighbor_limit` / `closest_band_union` | `8` | `4` | `unsupervised` | `4766.1 ± 93.3` | `0.4367 ± 0.0529` | `6.11` | `4` | `81.12%` | `27.5%` (`14.6%` val / `12.9%` test) | `0.5207` *(ES ep. 398)* | `22.8` |
 
 ### 5.1 Síntese Analítica da Decisão 01 (`E01` vs. `E01R` vs. `E00`)
 - **Ganho consistente sobre o baseline irrestrito (`E00`):** Todas as **8** configurações esparsas superaram o `E00` simultaneamente em **homofilia topológica do meta-grafo** (`79.98%–83.31%` vs. `77.16%`) e em **Macro-F1 no OLGA** (`0.4785–0.5408` vs. `0.4768`), comprovando que remover conexões globais de longo alcance nos NVGs reduz o ruído estrutural de picos dominantes (*hubs*).
 - **Melhor configuração de `E01` (`E01_n8` — `closest_band_union`, `n=8`):** Reduziu o tamanho médio do NVG em **72,6%** (`4766.1` vs. `17413.8` arestas), atingiu o **pico global de homofilia não-supervisionada (`83.31%`, +6,15 p.p.)**, o menor acoplamento `train`–não-treino dentro de `E01` (`26.6%`) e o **maior Macro-F1 (`0.5408`, +6,40 p.p. sobre `E00`)**, seguido de queda em `n=10` (`82.06%` / `0.5158`), caracterizando um ponto ótimo claro na vizinhança de `n=8`.
 - **Comparação de políticas (`closest_band_union` vs. `right_n`):** Em orçamentos muito baixos (1 atalho: `E01R_n2` vs. `E01_n3`), `right_n` foi competitivo (`0.5087`), porém perdeu homofilia conforme $n$ cresceu (`81.86%` → `80.72%` → `79.98%`). Já `closest_band_union` melhorou até `n=8` (`83.31%` / `0.5408`) por preservar a **simetria espectral bilateral** ($|b - a|$) nos flancos esquerdo e direito das bandas de absorção ATR-FTIR, sem o viés direcional de olhar apenas para maiores números de onda ($b > a$).
 
-### 5.2 Síntese Analítica de `E02`, `E03` e `E04`
+### 5.2 Síntese Analítica de `E02`, `E03`, `E04` e `E05_fine`
 - **Sensibilidade ao $k$ do meta-grafo (`E02`):** $k=3$ (`E01_n8`, `Macro-F1 = 0.5408`) confirmou-se o ponto ótimo: $k=2$ elevou a homofilia (`85.68%`), mas fragmentou o grafo em `30` componentes (`0.5351`); já $k=5$ (`0.5055`) e $k=7$ (`0.4576`) diluíram progressivamente a homofilia (`78.99%` → `76.65%`) e degradaram a separação no OLGA.
 - **Decisão 01 — Principal (`neighbor_limit`) vs. Alternativa (`band_window`, `E03`):** `neighbor_limit` (`closest_band_union`, `n=8`, `0.5408`) superou todas as janelas espectrais fixas `w ∈ {5, 10, 25, 50}` (`0.4545–0.5038`). Em densidade comparável (`E03_w10`, `4203.8` arestas vs. `4766.1`), a janela rígida corta 100% dos atalhos morfológicos que atravessam vales mais largos que $w$ e infla o Jaccard com arestas locais redundantes (`0.6023`), perdendo **7,79 p.p.** de Macro-F1 em relação ao corte adaptativo `neighbor_limit`.
 - **Decisão 02 — Principal (`unsupervised`) vs. Alternativa (`train_supervised`, `E04`):** `E04_tsup` reduziu o acoplamento `train`–não-treino de `26.6%` para **`15.7%`**, reduziu as componentes conexas de `10` para **`3`** e elevou a homofilia a **`90.58%`** (+7,27 p.p. sobre `E01_n8` e +13,42 p.p. sobre `E00`) sem vazamento de rótulos, alcançando `Macro-F1 = 0.5393` (virtualmente empatado com `0.5408`, e atingindo o maior F1 na época 100 de todos os testes: `0.5347`, antes da queda pós-época 150 do OLGA).
+- **Prova de máximo local discreto estrito em `(n=8, k=3)` (`E05_fine`):**
+  - **No eixo $n$ (`k=3`):** tanto a homofilia (`81.58%` → `82.32%` → **`83.31%`** → `82.38%` → `82.06%`) quanto o Macro-F1 (`0.4978` → `0.5320` → **`0.5408`** → `0.4903` → `0.5158`, para $n=6,7,8,9,10$) atingem pico estrito simultâneo em `n=8`.
+  - **No eixo $k$ (`n=8`):** o Macro-F1 descreve uma curva côncava monotônica ao redor de `k=3` (`k=2`: `0.5351` → **`k=3`: `0.5408`** → `k=4`: `0.5207` → `k=5`: `0.5055` → `k=7`: `0.4576`), comprovando que todos os 4 vizinhos inteiros imediatos `(7,3)`, `(9,3)`, `(8,2)` e `(8,4)` ficam estritamente abaixo de `(8,3)`.
 
 ---
 
@@ -191,5 +197,6 @@ Cada experimento gera seu próprio arquivo isolado em `OLGA/codes/results/<DATAS
 - **Decisão 01 consolidada:** `nvg_mode="neighbor_limit"`, `neighbor_policy="closest_band_union"`, **`n = 8`**.
 - **Parâmetro do meta-grafo consolidado:** **`k = 3`**.
 - **Decisão 02 consolidada:** **`meta_mode="unsupervised"`** como configuração principal padrão (`0.5408` Macro-F1, totalmente não-supervisionada); **`meta_mode="train_supervised"`** mantida como variante validada de altíssima pureza topológica (`90.58%` homofilia, `0.5393` Macro-F1) para reavaliação prioritária quando o escopo avançar para o alinhamento de rótulos do OLGA.
+- **Promoção ao código-fonte:** A configuração campeã (`nvg_mode="neighbor_limit"`, `nvg_param=8`, `neighbor_policy="closest_band_union"`, `k=3`, `meta_mode="unsupervised"`) foi promovida a padrão direto de `build_visg2` (`graph_builders.py`) e do fallback CLI de `main.py` (bastando passar `nvg_mode="none"` / `--visg2_nvg_mode none` para reproduzir o baseline `E00`).
 
 > **Nota de auditoria pós-`E00` (fora do escopo do VisG2 — modelo OLGA mantido intocado):** observou-se queda do Macro-F1 após a época `150` (`0.4358` na época 100 → `0.4195` na 200 → `0.3606` na 300, com pico de `0.4768` na época 83 antes do `multi_task=150`), confirmando empiricamente a observação lateral da Seção 2.3 (inversão `label=0` em `train_mask` vs. `label==1` esperado em `oneclass.py`). Esse comportamento fica registrado para análise dedicada após concluirmos a etapa estrita do VisG2.
