@@ -28,6 +28,11 @@ SWEEP_BATTERIES = {
         ("E03_w50", "visg2_E03_win50", "band_window", 50, "closest_band_union", 3, "unsupervised"),
         ("E04_tsup", "visg2_E04_trainsup_n8_k3", "neighbor_limit", 8, "closest_band_union", 3, "train_supervised"),
     ],
+    "E05_fine": [
+        ("E05_n7_k3", "visg2_E05_union_n7_k3", "neighbor_limit", 7, "closest_band_union", 3, "unsupervised"),
+        ("E05_n9_k3", "visg2_E05_union_n9_k3", "neighbor_limit", 9, "closest_band_union", 3, "unsupervised"),
+        ("E05_n8_k4", "visg2_E05_union_n8_k4", "neighbor_limit", 8, "closest_band_union", 4, "unsupervised"),
+    ],
 }
 
 
@@ -118,9 +123,9 @@ def main():
     parser.add_argument(
         "--battery",
         type=str,
-        default="E02_E04",
+        default="E05_fine",
         choices=list(SWEEP_BATTERIES.keys()),
-        help="Bateria de experimentos a executar (padrão: E02_E04)",
+        help="Bateria de experimentos a executar (padrão: E05_fine)",
     )
     parser.add_argument("--dataset", type=str, default="ftir_diabetes", help="Nome do dataset para o CSV de saída")
     parser.add_argument("--dry-run", action="store_true", help="Apenas imprime os comandos sem executar")

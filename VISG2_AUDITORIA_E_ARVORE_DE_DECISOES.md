@@ -2,7 +2,7 @@
 
 > **Projeto:** Iniciação Científica (UFU — Grupo AI Net) — Detecção não invasiva de diabetes via espectros ATR-FTIR com grafos e OLGA (*One-Class Graph Autoencoder*).  
 > **Referência teórica base:** Lima Filho, Sabino-Silva & Carneiro (IJCNN 2025), *"High-level classification based on meta-graph of visibility graphs for Autism detection"*.  
-> **Status desta etapa:** Plano estrutural validado e implementado localmente em `graph_builders.py` e `main.py`, pronto para sincronização e execução controlada no `docker-lab` remoto.
+> **Status desta etapa:** Concluída — todas as **17** execuções controladas (`E00` a `E04`) foram auditadas e consolidadas na `ainetmachine` (`docker-lab`), definindo a configuração campeã do VisG2.
 
 ---
 
@@ -121,7 +121,7 @@ docker-lab run
 docker-lab logs renan_visg2_E00
 ```
 
-> **Execução em baterias controladas (`--battery {E01_E01R, E02_E04}`):** O orquestrador `OLGA/codes/olga/run_visg2_sweep.py` executa cada configuração em processo isolado do `main.py` (~2–3 min por bateria de 8 rodadas). Atualmente está ativo com `--battery E02_E04` como padrão (`JOB_NAME={USERNAME}_visg2_E02_E04` no `job.env`; acompanhar via `docker-lab logs renan_visg2_E02_E04`), reunindo `E02` (`k ∈ {2, 5, 7}`), `E03` (`band_window`, `w ∈ {5, 10, 25, 50}`) e `E04` (`train_supervised`). Para reexecutar `E01` + `E01R`, passe `--battery E01_E01R`.
+> **Execução em baterias controladas (`--battery {E01_E01R, E02_E04, E05_fine}`):** O orquestrador `OLGA/codes/olga/run_visg2_sweep.py` executa cada configuração em processo isolado do `main.py` (~1–3 min por bateria). Atualmente está ativo com `--battery E05_fine` como padrão (`JOB_NAME={USERNAME}_visg2_E05_fine` no `job.env`; acompanhar via `docker-lab logs renan_visg2_E05_fine`), avaliando os 3 vizinhos inteiros em torno de `(n=8, k=3)`: `(7, 3)`, `(9, 3)` e `(8, 4)`. Para reexecutar as baterias anteriores, passe `--battery E01_E01R` ou `--battery E02_E04`.
 
 *(Dica: ao mudar de etapa no `job.env`, atualize também `JOB_NAME={USERNAME}_visg2_<etapa>` se quiser manter um arquivo de log separado em `/opt/docker_lab/logs/` para cada bateria.)*
 
@@ -137,6 +137,7 @@ Cada experimento gera seu próprio arquivo isolado em `OLGA/codes/results/<DATAS
 | **E02 (Sensibilidade a `k`)** | `visg2_E02_k5` *(varie 5, 7)* | `5, 7` | `neighbor_limit` | *melhor `n`* | *melhor política* | `unsupervised` |
 | **E03 (Alt. D01 — janela)** | `visg2_E03_win10` *(varie 10, 25)* | *melhor `k`* | `band_window` | `10, 25` | `closest_band_union` | `unsupervised` |
 | **E04 (Alt. D02 — treino)** | `visg2_E04_trainsup` | *melhor `k`* | *melhor modo* | *melhor `n`* | *melhor política* | `train_supervised` |
+| **E05 (Refinamento fino)** | `visg2_E05_union_n7_k3` *(7/3, 9/3, 8/4)* | `3, 4` | `neighbor_limit` | `7, 8, 9` | `closest_band_union` | `unsupervised` |
 
 ### Alternativa via CLI direta (em shell interativo com `.venv` — flags CLI prevalecem sobre `job.env`)
 
@@ -164,10 +165,31 @@ Cada experimento gera seu próprio arquivo isolado em `OLGA/codes/results/<DATAS
 | **E01R_n2** | `neighbor_limit` / `right_n` | `2` | `3` | `unsupervised` | `1678.8 ± 11.6` | `0.6175 ± 0.0271` | `4.67` | `9` | `81.86%` | `25.2%` (`14.0%` val / `11.2%` test) | `0.5087` *(ES ep. 388)* | `15.8` |
 | **E01R_n3** | `neighbor_limit` / `right_n` | `3` | `3` | `unsupervised` | `2394.0 ± 25.2` | `0.5209 ± 0.0377` | `4.69` | `13` | `80.72%` | `27.2%` (`14.5%` val / `12.7%` test) | `0.5116` *(ES ep. 402)* | `16.2` |
 | **E01R_n5** | `neighbor_limit` / `right_n` | `5` | `3` | `unsupervised` | `3717.7 ± 62.0` | `0.4568 ± 0.0488` | `4.63` | `10` | `79.98%` | `27.7%` (`14.5%` val / `13.1%` test) | `0.4913` *(ES ep. 409)* | `17.1` |
+| **E02_k2** | `neighbor_limit` / `closest_band_union` | `8` | `2` | `unsupervised` | `4766.1 ± 93.3` | `0.4367 ± 0.0529` | `3.03` | `30` | `85.68%` | `26.7%` (`13.2%` val / `13.6%` test) | `0.5351` *(ES ep. 382)* | `22.5` |
+| **E02_k5** | `neighbor_limit` / `closest_band_union` | `8` | `5` | `unsupervised` | `4766.1 ± 93.3` | `0.4367 ± 0.0529` | `7.67` | `3` | `78.99%` | `28.1%` (`15.0%` val / `13.1%` test) | `0.5055` *(ES ep. 404)* | `23.2` |
+| **E02_k7** | `neighbor_limit` / `closest_band_union` | `8` | `7` | `unsupervised` | `4766.1 ± 93.3` | `0.4367 ± 0.0529` | `10.75` | `2` | `76.65%` | `28.9%` (`14.8%` val / `14.1%` test) | `0.4576` *(ES ep. 310)* | `22.4` |
+| **E03_w5** | `band_window` / `-` | `5` | `3` | `unsupervised` | `2620.9 ± 35.6` | `0.6817 ± 0.0655` | `4.78` | `11` | `81.96%` | `25.2%` (`13.5%` val / `11.7%` test) | `0.4723` *(ES ep. 439)* | `15.5` |
+| **E03_w10** | `band_window` / `-` | `10` | `3` | `unsupervised` | `4203.8 ± 83.9` | `0.6023 ± 0.0799` | `4.80` | `11` | `80.83%` | `26.1%` (`13.7%` val / `12.4%` test) | `0.4629` *(ES ep. 307)* | `15.3` |
+| **E03_w25** | `band_window` / `-` | `25` | `3` | `unsupervised` | `6847.0 ± 421.5` | `0.5376 ± 0.0911` | `4.80` | `12` | `79.33%` | `27.0%` (`14.1%` val / `12.9%` test) | `0.4545` *(ES ep. 413)* | `18.4` |
+| **E03_w50** | `band_window` / `-` | `50` | `3` | `unsupervised` | `9998.7 ± 908.2` | `0.5135 ± 0.0981` | `4.73` | `10` | `78.44%` | `27.6%` (`14.5%` val / `13.1%` test) | `0.5038` *(ES ep. 381)* | `19.8` |
+| **E04_tsup** | `neighbor_limit` / `closest_band_union` | **`8`** | **`3`** | **`train_supervised`** | `4766.1 ± 93.3` | `0.4367 ± 0.0529` | `4.82` | **`3`** | **`90.58%`** | **`15.7%`** (`7.8%` val / `7.9%` test) | **`0.5393`** *(ES ep. 399)* | `22.8` |
 
 ### 5.1 Síntese Analítica da Decisão 01 (`E01` vs. `E01R` vs. `E00`)
 - **Ganho consistente sobre o baseline irrestrito (`E00`):** Todas as **8** configurações esparsas superaram o `E00` simultaneamente em **homofilia topológica do meta-grafo** (`79.98%–83.31%` vs. `77.16%`) e em **Macro-F1 no OLGA** (`0.4785–0.5408` vs. `0.4768`), comprovando que remover conexões globais de longo alcance nos NVGs reduz o ruído estrutural de picos dominantes (*hubs*).
 - **Melhor configuração de `E01` (`E01_n8` — `closest_band_union`, `n=8`):** Reduziu o tamanho médio do NVG em **72,6%** (`4766.1` vs. `17413.8` arestas), atingiu o **pico global de homofilia não-supervisionada (`83.31%`, +6,15 p.p.)**, o menor acoplamento `train`–não-treino dentro de `E01` (`26.6%`) e o **maior Macro-F1 (`0.5408`, +6,40 p.p. sobre `E00`)**, seguido de queda em `n=10` (`82.06%` / `0.5158`), caracterizando um ponto ótimo claro na vizinhança de `n=8`.
 - **Comparação de políticas (`closest_band_union` vs. `right_n`):** Em orçamentos muito baixos (1 atalho: `E01R_n2` vs. `E01_n3`), `right_n` foi competitivo (`0.5087`), porém perdeu homofilia conforme $n$ cresceu (`81.86%` → `80.72%` → `79.98%`). Já `closest_band_union` melhorou até `n=8` (`83.31%` / `0.5408`) por preservar a **simetria espectral bilateral** ($|b - a|$) nos flancos esquerdo e direito das bandas de absorção ATR-FTIR, sem o viés direcional de olhar apenas para maiores números de onda ($b > a$).
+
+### 5.2 Síntese Analítica de `E02`, `E03` e `E04`
+- **Sensibilidade ao $k$ do meta-grafo (`E02`):** $k=3$ (`E01_n8`, `Macro-F1 = 0.5408`) confirmou-se o ponto ótimo: $k=2$ elevou a homofilia (`85.68%`), mas fragmentou o grafo em `30` componentes (`0.5351`); já $k=5$ (`0.5055`) e $k=7$ (`0.4576`) diluíram progressivamente a homofilia (`78.99%` → `76.65%`) e degradaram a separação no OLGA.
+- **Decisão 01 — Principal (`neighbor_limit`) vs. Alternativa (`band_window`, `E03`):** `neighbor_limit` (`closest_band_union`, `n=8`, `0.5408`) superou todas as janelas espectrais fixas `w ∈ {5, 10, 25, 50}` (`0.4545–0.5038`). Em densidade comparável (`E03_w10`, `4203.8` arestas vs. `4766.1`), a janela rígida corta 100% dos atalhos morfológicos que atravessam vales mais largos que $w$ e infla o Jaccard com arestas locais redundantes (`0.6023`), perdendo **7,79 p.p.** de Macro-F1 em relação ao corte adaptativo `neighbor_limit`.
+- **Decisão 02 — Principal (`unsupervised`) vs. Alternativa (`train_supervised`, `E04`):** `E04_tsup` reduziu o acoplamento `train`–não-treino de `26.6%` para **`15.7%`**, reduziu as componentes conexas de `10` para **`3`** e elevou a homofilia a **`90.58%`** (+7,27 p.p. sobre `E01_n8` e +13,42 p.p. sobre `E00`) sem vazamento de rótulos, alcançando `Macro-F1 = 0.5393` (virtualmente empatado com `0.5408`, e atingindo o maior F1 na época 100 de todos os testes: `0.5347`, antes da queda pós-época 150 do OLGA).
+
+---
+
+## 6. Veredito Consolidado da Árvore de Decisões (Configuração Campeã do VisG2)
+
+- **Decisão 01 consolidada:** `nvg_mode="neighbor_limit"`, `neighbor_policy="closest_band_union"`, **`n = 8`**.
+- **Parâmetro do meta-grafo consolidado:** **`k = 3`**.
+- **Decisão 02 consolidada:** **`meta_mode="unsupervised"`** como configuração principal padrão (`0.5408` Macro-F1, totalmente não-supervisionada); **`meta_mode="train_supervised"`** mantida como variante validada de altíssima pureza topológica (`90.58%` homofilia, `0.5393` Macro-F1) para reavaliação prioritária quando o escopo avançar para o alinhamento de rótulos do OLGA.
 
 > **Nota de auditoria pós-`E00` (fora do escopo do VisG2 — modelo OLGA mantido intocado):** observou-se queda do Macro-F1 após a época `150` (`0.4358` na época 100 → `0.4195` na 200 → `0.3606` na 300, com pico de `0.4768` na época 83 antes do `multi_task=150`), confirmando empiricamente a observação lateral da Seção 2.3 (inversão `label=0` em `train_mask` vs. `label==1` esperado em `oneclass.py`). Esse comportamento fica registrado para análise dedicada após concluirmos a etapa estrita do VisG2.
