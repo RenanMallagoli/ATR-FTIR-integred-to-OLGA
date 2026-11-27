@@ -199,4 +199,38 @@ Cada experimento gera seu próprio arquivo isolado em `OLGA/codes/results/<DATAS
 - **Decisão 02 consolidada:** **`meta_mode="unsupervised"`** como configuração principal padrão (`0.5408` Macro-F1, totalmente não-supervisionada); **`meta_mode="train_supervised"`** mantida como variante validada de altíssima pureza topológica (`90.58%` homofilia, `0.5393` Macro-F1) para reavaliação prioritária quando o escopo avançar para o alinhamento de rótulos do OLGA.
 - **Promoção ao código-fonte:** A configuração campeã (`nvg_mode="neighbor_limit"`, `nvg_param=8`, `neighbor_policy="closest_band_union"`, `k=3`, `meta_mode="unsupervised"`) foi promovida a padrão direto de `build_visg2` (`graph_builders.py`) e do fallback CLI de `main.py` (bastando passar `nvg_mode="none"` / `--visg2_nvg_mode none` para reproduzir o baseline `E00`).
 
-> **Nota de auditoria pós-`E00` (fora do escopo do VisG2 — modelo OLGA mantido intocado):** observou-se queda do Macro-F1 após a época `150` (`0.4358` na época 100 → `0.4195` na 200 → `0.3606` na 300, com pico de `0.4768` na época 83 antes do `multi_task=150`), confirmando empiricamente a observação lateral da Seção 2.3 (inversão `label=0` em `train_mask` vs. `label==1` esperado em `oneclass.py`). Esse comportamento fica registrado para análise dedicada após concluirmos a etapa estrita do VisG2.
+---
+
+## 7. Fase 2 — Auditoria da Ponte VisG2 ↔ OLGA e Decisão 03 (`interest_class`)
+
+> **Diretriz da fase:** Congelar `graph_builders.py` (VisG2), `olga.py`, `oneclass.py`, `data_loader.py` e `utils.py`, atuando exclusivamente na ponte (`main.py`) para definir **Anomalia/Diabetes (`class == 1`) como classe de interesse** no OLGA e mensurar o impacto antes e depois da transição `multi_task = 150`.
+
+### 7.1 Diagnóstico Estático dos 4 Pontos Críticos da Ponte
+
+1. **Ponto 1 — Definição de `train_mask` em `main.py` (linhas 263–289):**
+   - *Antes:* Selecionava `70%` de `classe_controle = 0` (`175` amostras) para `train_mask`, enviando `37` controles + `135` diabéticos para `val_mask` e `38` controles + `135` diabéticos para `test_mask`.
+   - *Alinhamento:* Com **Diabetes (`class == 1`, 270 amostras) como classe de interesse**, `train_mask` passa a conter `70%` dos diabéticos (`189` amostras, `0` controles); `val_mask` recebe `15%` dos diabéticos (`40`) + `50%` dos controles (`125`, total `165`); e `test_mask` recebe os `41` diabéticos restantes + `125` controles (total `166`).
+2. **Ponto 2 — Convenção `label == 1` vs. `label == 0` em `oneclass.py`:**
+   - `oneclass.py` é internamente consistente: `one_class_masking(g, False)` envia nós `train == 1` para `one_class_loss` (que os comprime para **dentro** da hiperesfera, `dist < r^2`), enquanto `One_Class_GNN_prediction` (linhas 52–69) avalia `label == 1` como `interest` (predição correta dentro da esfera, `+1`) e `label == 0` como `outlier` (fora da esfera, `-1`).
+   - *Causa da queda pós-época 150 em `E00`–`E05`:* O código anterior colocava `class == 0` (`label = 0`) em `train_mask`, fazendo `one_class_loss` puxar nós `label == 0` para dentro da esfera enquanto a métrica punia `label == 0` dentro da esfera!
+   - *Solução na ponte:* Na Escolha Principal (`interest_class="diabetes"`), `labels_olga` coincide naturalmente com `class` (`1=Diabetes`, `0=Controle`). Na Alternativa Comparativa (`interest_class="control"`), `labels_olga` é explicitamente invertido (`1=Controle`, `0=Diabetes`), eliminando a contradição sem alterar `oneclass.py`.
+3. **Ponto 3 — Alinhamento entre `g`, `g_unsup` e `mask_unsup`:**
+   - Verificado em `.venv` que `g.subgraph(t_mask_unsup)` seguido de `from_networkx(g_unsup)` preservam a ordenação crescente exata dos nós de `mask_unsup` (`learned_representations[mask_unsup]`), garantindo correspondência 1-para-1 em `model.recon_loss(...)` (linha 55).
+   - No modo `train_supervised` do VisG2 (`E04_tsup`), `y_arr[i] == y_arr[j]` continua filtrando pares intra-classe estritamente dentro de `train_mask` (`class == 1` para `diabetes` ou `class == 0` para `control`), preservando as arestas internas de `g_unsup` e 0% de *label leakage*.
+4. **Ponto 4 — Avaliação pré/pós-época 150 e conjunto de teste (`val` e `test`):**
+   - `train_olga` selecionava o melhor checkpoint via `'val'` (`EarlyStopping`) e avaliava novamente apenas `'val'` no retorno (linha 85), **nunca reportando `test_mask`**.
+   - A ponte passa a manter o `EarlyStopping` estritamente em `'val'` (zero vazamento de teste), rastrear separadamente os melhores Macro-F1 de validação **pré-150** (`epoch < multi_task`) e **pós-150** (`epoch >= multi_task`), e avaliar o melhor modelo final tanto em `'val'` (`<dataset>_<k>_OLGA.csv`) quanto em `'test'` (`<dataset>_<k>_test_OLGA.csv`).
+
+### 7.2 Decisão 03 — Classe de Interesse na Ponte VisG2 ↔ OLGA (`--interest_class` / `INTEREST_CLASS`)
+
+- **Escolha Principal (ativa como padrão):** `interest_class="diabetes"` — **Anomalia / Diabetes (`class == 1`)** como classe de interesse encapsulada na hiperesfera (`label = 1`, `train_mask` com `189` diabéticos).
+- **Alternativa em Segundo Plano (comparativa):** `interest_class="control"` — **Controle Saudável (`class == 0`)** como classe de interesse (`train_mask` com os mesmos `175` controles da Fase 1, porém com polaridade corrigida `label = 1` para Controle e `0` para Diabetes).
+
+### 7.3 Protocolo e Resultados da Bateria `E06_bridge` (`n=8`, `closest_band_union`, `k=3`)
+
+| ID Exp. | `interest_class` | `meta_mode` | Homofilia (%) | Val F1 pré-150 | Val F1 pós-150 | Val Macro-F1 *(best ep.)* | Test Macro-F1 | Test F1(+1 int / -1 out) | Tempo (s) |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **E06_diab_unsup** | `diabetes` | `unsupervised` | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ |
+| **E06_diab_tsup** | `diabetes` | `train_supervised` | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ |
+| **E06R_ctrl_unsup** | `control` | `unsupervised` | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ |
+| **E06R_ctrl_tsup** | `control` | `train_supervised` | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ | _pendente_ |

@@ -33,7 +33,20 @@ SWEEP_BATTERIES = {
         ("E05_n9_k3", "visg2_E05_union_n9_k3", "neighbor_limit", 9, "closest_band_union", 3, "unsupervised"),
         ("E05_n8_k4", "visg2_E05_union_n8_k4", "neighbor_limit", 8, "closest_band_union", 4, "unsupervised"),
     ],
+    "E06_bridge": [
+        ("E06_diab_unsup", "visg2_E06_diab_unsup_n8_k3", "neighbor_limit", 8, "closest_band_union", 3, "unsupervised", "diabetes"),
+        ("E06_diab_tsup", "visg2_E06_diab_trainsup_n8_k3", "neighbor_limit", 8, "closest_band_union", 3, "train_supervised", "diabetes"),
+        ("E06R_ctrl_unsup", "visg2_E06R_ctrl_unsup_n8_k3", "neighbor_limit", 8, "closest_band_union", 3, "unsupervised", "control"),
+        ("E06R_ctrl_tsup", "visg2_E06R_ctrl_trainsup_n8_k3", "neighbor_limit", 8, "closest_band_union", 3, "train_supervised", "control"),
+    ],
 }
+
+
+def _unpack_exp(exp):
+    """Normaliza tuplas de 7 ou 8 elementos para (exp_id, tag, nvg_mode, n, policy, k, meta_mode, interest_class)."""
+    if len(exp) == 7:
+        return (*exp, "diabetes")
+    return exp
 
 
 def _extract(pattern, text, group=1, default="N/A"):
@@ -63,13 +76,19 @@ def parse_run_metrics(output_text, elapsed_s):
         "homophily": _extract(r"Homofilia[^:]*:\s*([0-9.]+%)", output_text),
         "best_f1": _extract(r"Melhor F1-Score alcançado:\s*([0-9.]+)", output_text),
         "es_epoch": _extract(r"Early Stopping\)\s*na época\s*(\d+)", output_text),
+        "pre150_f1": _extract(r"Val Macro-F1 pré-150\s*=\s*([0-9.-]+)", output_text),
+        "post150_f1": _extract(r"pós-150\s*=\s*([0-9.-]+)", output_text),
+        "best_epoch": _extract(r"best_epoch\s*=\s*(\d+)", output_text),
+        "test_macro_f1": _extract(r"Teste \(Test\)\s*:\s*Macro-F1\s*=\s*([0-9.]+)", output_text),
+        "test_f1_int": _extract(r"Teste \(Test\).*?F1\(\+1 int\)\s*=\s*([0-9.]+)", output_text),
+        "test_f1_out": _extract(r"Teste \(Test\).*?F1\(-1 out\)\s*=\s*([0-9.]+)", output_text),
         "elapsed_s": f"{elapsed_s:.1f}",
     }
 
 
 def build_command(main_py, dataset, exp):
     """Monta a linha de comando CLI isolada para um experimento do main.py."""
-    _, tag, nvg_mode, n, policy, k, meta_mode = exp
+    _, tag, nvg_mode, n, policy, k, meta_mode, interest_class = _unpack_exp(exp)
     return [
         sys.executable,
         str(main_py),
@@ -87,13 +106,38 @@ def build_command(main_py, dataset, exp):
         policy,
         "--visg2_meta_mode",
         meta_mode,
+        "--interest_class",
+        interest_class,
         "--k",
         tag,
     ]
 
 
-def format_markdown_summary(rows):
-    """Formata a tabela Markdown consolidada compatível com a Seção 5 do documento de auditoria."""
+def format_markdown_summary(rows, battery="E02_E04"):
+    """Formata a tabela Markdown consolidada compatível com o documento de auditoria."""
+    if battery == "E06_bridge":
+        header = (
+            "| ID Exp. | `interest_class` | `meta_mode` | Homofilia (%) | "
+            "Val F1 pré-150 | Val F1 pós-150 | Val Macro-F1 *(best ep.)* | "
+            "Test Macro-F1 | Test F1(+1 int / -1 out) | Tempo (s) |\n"
+            "| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
+        )
+        lines = [header]
+        for exp, m in rows:
+            exp_id, _, _, _, _, _, meta_mode, interest_class = _unpack_exp(exp)
+            val_cell = (
+                f"`{m['best_f1']}` *(ep. {m['best_epoch']})*"
+                if m["best_epoch"] != "N/A"
+                else f"`{m['best_f1']}`"
+            )
+            test_split_cell = f"`{m['test_f1_int']}` / `{m['test_f1_out']}`"
+            lines.append(
+                f"| **{exp_id}** | `{interest_class}` | `{meta_mode}` | `{m['homophily']}` | "
+                f"`{m['pre150_f1']}` | `{m['post150_f1']}` | {val_cell} | "
+                f"`{m['test_macro_f1']}` | {test_split_cell} | `{m['elapsed_s']}` |"
+            )
+        return "\n".join(lines)
+
     header = (
         "| ID Exp. | `nvg_mode` / `policy` | `n` / `w` | `k` | `meta_mode` | "
         "Arestas médias/NVG | Jaccard médio ± dp | Grau médio meta | Comp. conexas | "
@@ -102,7 +146,7 @@ def format_markdown_summary(rows):
     )
     lines = [header]
     for exp, m in rows:
-        exp_id, _, nvg_mode, n, policy, k, meta_mode = exp
+        exp_id, _, nvg_mode, n, policy, k, meta_mode, _ = _unpack_exp(exp)
         mode_cell = "`band_window` / `-`" if nvg_mode == "band_window" else f"`{nvg_mode}` / `{policy}`"
         f1_cell = f"`{m['best_f1']}` *(ES ep. {m['es_epoch']})*" if m["es_epoch"] != "N/A" else f"`{m['best_f1']}`"
         lines.append(
@@ -123,9 +167,9 @@ def main():
     parser.add_argument(
         "--battery",
         type=str,
-        default="E05_fine",
+        default="E06_bridge",
         choices=list(SWEEP_BATTERIES.keys()),
-        help="Bateria de experimentos a executar (padrão: E05_fine)",
+        help="Bateria de experimentos a executar (padrão: E06_bridge)",
     )
     parser.add_argument("--dataset", type=str, default="ftir_diabetes", help="Nome do dataset para o CSV de saída")
     parser.add_argument("--dry-run", action="store_true", help="Apenas imprime os comandos sem executar")
@@ -146,11 +190,11 @@ def main():
     results = []
     t_sweep = time.time()
     for idx, exp in enumerate(experiments, start=1):
-        exp_id, tag, nvg_mode, n, policy, k, meta_mode = exp
+        exp_id, tag, nvg_mode, n, policy, k, meta_mode, interest_class = _unpack_exp(exp)
         cmd = build_command(main_py, args.dataset, exp)
         print(
             f"\n=== [{idx}/{total}] [{args.battery}] {exp_id} "
-            f"({nvg_mode}/{policy}, n={n}, k={k}, meta={meta_mode}, tag={tag}) ===",
+            f"({nvg_mode}/{policy}, n={n}, k={k}, meta={meta_mode}, interest={interest_class}, tag={tag}) ===",
             flush=True,
         )
 
@@ -179,7 +223,7 @@ def main():
         results.append((exp, metrics))
 
     print(f"\n=== Bateria {args.battery} concluída em {time.time() - t_sweep:.1f}s ===\n", flush=True)
-    print(format_markdown_summary(results), flush=True)
+    print(format_markdown_summary(results, battery=args.battery), flush=True)
 
 
 if __name__ == "__main__":
